@@ -7,14 +7,13 @@ use std::time::Duration;
 use log::debug;
 
 use crate::config::LLMConfig;
-use crate::llm::client::LLMClient;
+use crate::llm::client::{LLMClient, LLMResponse, TokenUsage};
 
 /// Anthropic API response for chat completions
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
     #[serde(default)]
     content: Vec<AnthropicContent>,
-    #[allow(dead_code)]
     #[serde(default)]
     usage: Option<AnthropicUsage>,
 }
@@ -29,10 +28,8 @@ struct AnthropicContent {
 
 #[derive(Debug, Deserialize)]
 struct AnthropicUsage {
-    #[allow(dead_code)]
     #[serde(default)]
     input_tokens: usize,
-    #[allow(dead_code)]
     #[serde(default)]
     output_tokens: usize,
 }
@@ -78,11 +75,26 @@ impl AnthropicClient {
             config: config.clone(),
         })
     }
+    
+    /// Get token pricing for the configured model
+    fn get_model_pricing(&self) -> (f64, f64) {
+        match self.config.model.as_str() {
+            m if m.contains("claude-3-opus") => (0.015, 0.075),
+            m if m.contains("claude-3-sonnet") => (0.003, 0.015),
+            m if m.contains("claude-3-haiku") => (0.00025, 0.00125),
+            m if m.contains("claude-2") => (0.01, 0.03),
+            m if m.contains("claude-instant") => (0.0008, 0.0024),
+            _ => {
+                debug!("Unknown model pricing for {}, using Claude 3 Sonnet pricing", self.config.model);
+                (0.003, 0.015)
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl LLMClient for AnthropicClient {
-    async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<String> {
+    async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<LLMResponse> {
         let base_url = self.config.base_url.as_deref().unwrap_or("https://api.anthropic.com");
         let url = format!("{}/v1/messages", base_url);
         
@@ -133,10 +145,30 @@ impl LLMClient for AnthropicClient {
                 response_data.content.first().map(|c| c.text.clone()).unwrap_or_default()
             });
         
-        Ok(text_content)
+        // Extract usage information
+        let usage = if let Some(api_usage) = response_data.usage {
+            TokenUsage {
+                prompt_tokens: api_usage.input_tokens,
+                completion_tokens: api_usage.output_tokens,
+                total_tokens: api_usage.input_tokens + api_usage.output_tokens,
+            }
+        } else {
+            // Fallback if API doesn't return usage
+            debug!("No usage information returned from Anthropic API");
+            TokenUsage::default()
+        };
+        
+        Ok(LLMResponse {
+            content: text_content,
+            usage,
+        })
     }
     
     fn name(&self) -> &str {
         "anthropic"
+    }
+    
+    fn get_token_prices(&self) -> (f64, f64) {
+        self.get_model_pricing()
     }
 }

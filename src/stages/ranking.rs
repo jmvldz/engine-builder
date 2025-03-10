@@ -119,7 +119,7 @@ async fn rank_problem_files(
     problem: &mut SWEBenchProblem,
     config: &RankingConfig,
     client: &dyn LLMClient,
-) -> Result<()> {
+) -> Result<crate::llm::client::TokenUsage> {
     info!("Ranking files for problem: {}", problem.id);
     
     // Create a trajectory store for this problem
@@ -129,7 +129,7 @@ async fn rank_problem_files(
     // Check if ranking already exists
     if trajectory_store.ranking_exists() {
         info!("Ranking already exists for problem: {}", problem.id);
-        return Ok(());
+        return Ok(crate::llm::client::TokenUsage::default());
     }
     
     // Get relevant files
@@ -138,7 +138,7 @@ async fn rank_problem_files(
     
     if relevant_files.is_empty() {
         info!("No relevant files found for problem: {}", problem.id);
-        return Ok(());
+        return Ok(crate::llm::client::TokenUsage::default());
     }
     
     info!("Found {} relevant files for problem: {}", relevant_files.len(), problem.id);
@@ -163,6 +163,9 @@ async fn rank_problem_files(
     let mut rankings = Vec::new();
     let mut prompt_caching_usages = Vec::new();
     
+    // Track total token usage
+    let mut total_usage = crate::llm::client::TokenUsage::default();
+    
     // Run multiple ranking requests in parallel
     let mut futures = futures::stream::iter(
         (0..config.num_rankings).map(|i| {
@@ -184,38 +187,46 @@ async fn rank_problem_files(
     
     while let Some(result) = futures.next().await {
         match result {
-            Ok(content) => {
+            Ok(llm_response) => {
+                // Add to the total token usage
+                total_usage.prompt_tokens += llm_response.usage.prompt_tokens;
+                total_usage.completion_tokens += llm_response.usage.completion_tokens;
+                total_usage.total_tokens += llm_response.usage.total_tokens;
+                
                 // Extract the ranking
-                warn!("Got response: {}", content);
-                match extract_last_json(&content) {
+                warn!("Got response: {}", llm_response.content);
+                match extract_last_json(&llm_response.content) {
                     Ok(ranking) => {
                         info!("Successfully extracted ranking: {:?}", ranking);
                         rankings.push(FileRanking {
-                            message: content,
+                            message: llm_response.content.clone(),
                             ranking,
                         });
-                        // In a real implementation, would track usage from API response
-                        prompt_caching_usages.push(HashMap::new());
+                        // Add the usage for prompt caching
+                        let usage_map = HashMap::new();
+                        prompt_caching_usages.push(usage_map);
                     },
                     Err(e) => {
                         warn!("Failed to extract ranking: {}", e);
                         
                         // Try a more direct approach - just look for file paths
                         let path_re = regex::Regex::new(r#"["']([^"']+\.[^"']+)["']"#).unwrap();
-                        let matches: Vec<String> = path_re.captures_iter(&content)
+                        let matches: Vec<String> = path_re.captures_iter(&llm_response.content)
                             .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
                             .collect();
                         
                         if !matches.is_empty() {
                             info!("Found file paths using regex: {:?}", matches);
                             rankings.push(FileRanking {
-                                message: content,
+                                message: llm_response.content.clone(),
                                 ranking: matches,
                             });
-                            prompt_caching_usages.push(HashMap::new());
+                            // Add the usage for prompt caching
+                            let usage_map = HashMap::new();
+                            prompt_caching_usages.push(usage_map);
                         } else {
                             // Still not working, try another approach - look for lines that start with file paths
-                            let lines = content.lines();
+                            let lines = llm_response.content.lines();
                             let file_paths: Vec<String> = lines
                                 .filter(|line| line.contains("/") && !line.starts_with("```") && !line.starts_with("- "))
                                 .map(|line| line.trim().to_string())
@@ -224,10 +235,12 @@ async fn rank_problem_files(
                             if !file_paths.is_empty() {
                                 info!("Found file paths by line parsing: {:?}", file_paths);
                                 rankings.push(FileRanking {
-                                    message: content,
+                                    message: llm_response.content.clone(),
                                     ranking: file_paths,
                                 });
-                                prompt_caching_usages.push(HashMap::new());
+                                // Add the usage for prompt caching
+                                let usage_map = HashMap::new();
+                                prompt_caching_usages.push(usage_map);
                             }
                         }
                     }
@@ -284,7 +297,7 @@ async fn rank_problem_files(
         .context(format!("Failed to save ranking for problem: {}", problem.id))?;
     
     info!("Ranking completed for problem: {}", problem.id);
-    Ok(())
+    Ok(total_usage)
 }
 
 /// Process rankings for all problems
@@ -297,13 +310,19 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
     
     info!("Processing problem: {}", problem.id);
     
-    let result = rank_problem_files(&mut problem, &config, &*client).await;
-    
-    if let Err(e) = result {
-        warn!("Error ranking files for problem {}: {}", problem.id, e);
-        return Err(e);
+    match rank_problem_files(&mut problem, &config, &*client).await {
+        Ok(token_usage) => {
+            // Calculate and display cost
+            let cost = client.calculate_cost(&token_usage);
+            info!("Ranking LLM usage: {}", token_usage);
+            info!("Ranking LLM cost: {}", cost);
+            
+            info!("File ranking completed");
+            Ok(())
+        },
+        Err(e) => {
+            warn!("Error ranking files for problem {}: {}", problem.id, e);
+            Err(e)
+        }
     }
-    
-    info!("File ranking completed");
-    Ok(())
 }

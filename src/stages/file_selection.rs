@@ -50,7 +50,7 @@ pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
 }
 
 /// Run the file selection process
-pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &CodebaseConfig, problem: &SWEBenchProblem) -> Result<FilePatternSelection> {
+pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &CodebaseConfig, problem: &SWEBenchProblem) -> Result<(FilePatternSelection, crate::llm::client::TokenUsage)> {
     info!("Starting file selection process");
     
     // Create the LLM client
@@ -77,10 +77,10 @@ pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &Code
     info!("Asking LLM to select files for processing");
     let tree_prompt = get_codebase_tree_user_prompt(&configured_problem, &tree_output);
     
-    let file_selection_response = client.completion(&tree_prompt, config.max_tokens, 0.0).await
+    let llm_response = client.completion(&tree_prompt, config.max_tokens, 0.0).await
         .context("Failed to get file selection from LLM")?;
     
-    let file_patterns = parse_file_patterns(&file_selection_response)
+    let file_patterns = parse_file_patterns(&llm_response.content)
         .context("Failed to parse file patterns from LLM response")?;
     
     info!("LLM selected {} file patterns for processing", file_patterns.patterns.len());
@@ -88,7 +88,7 @@ pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &Code
         debug!("Selected pattern: {}", pattern);
     }
     
-    Ok(file_patterns)
+    Ok((file_patterns, llm_response.usage))
 }
 
 /// Save file patterns to the trajectory store
@@ -108,19 +108,6 @@ pub fn save_file_patterns(trajectory_store_dir: &str, problem: &SWEBenchProblem,
     
     info!("Saved file patterns to: {:?}", file_patterns_path);
     
-    // Create a summary file that's easy to read
-    let summary_path = problem_dir.join("file_patterns_summary.txt");
-    let mut summary = format!("# Selected File Patterns for Problem: {}\n\n", problem.id);
-    
-    for (i, pattern) in file_patterns.patterns.iter().enumerate() {
-        summary.push_str(&format!("{}. {}\n", i + 1, pattern));
-    }
-    
-    fs::write(&summary_path, summary)
-        .context(format!("Failed to write file patterns summary to: {:?}", summary_path))?;
-    
-    info!("Saved file patterns summary to: {:?}", summary_path);
-    
     Ok(())
 }
 
@@ -132,8 +119,17 @@ pub async fn process_file_selection(config: RelevanceConfig, codebase_config: &C
     let _trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &problem)
         .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
     
-    // Run file selection
-    let file_patterns = run_file_selection(&config, codebase_config, &problem).await?;
+    // Run file selection and get token usage
+    let (file_patterns, token_usage) = run_file_selection(&config, codebase_config, &problem).await?;
+    
+    // Create the LLM client to access pricing information
+    let client = create_client(&config.llm)
+        .context("Failed to create LLM client")?;
+    let cost = client.calculate_cost(&token_usage);
+    
+    // Output cost information
+    info!("File selection LLM usage: {}", token_usage);
+    info!("File selection LLM cost: {}", cost);
     
     // Save the results
     save_file_patterns(&config.trajectory_store_dir, &problem, &file_patterns)?;
