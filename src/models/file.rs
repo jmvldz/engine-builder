@@ -43,21 +43,27 @@ impl FilePatternSelection {
     
     /// Check if a file path matches any of the patterns
     pub fn matches(&self, file_path: &str) -> bool {
+        // Normalize file_path by removing "./" prefix if it exists
+        let normalized_path = file_path.strip_prefix("./").unwrap_or(file_path);
+        
         for pattern in &self.patterns {
+            // Normalize pattern by removing "./" prefix if it exists
+            let normalized_pattern = pattern.strip_prefix("./").unwrap_or(pattern);
+            
             // Check for exact file match
-            if pattern == file_path {
+            if normalized_pattern == normalized_path {
                 return true;
             }
             
             // Check if the file is in a specified directory
-            if pattern.ends_with('/') && file_path.starts_with(pattern) {
+            if normalized_pattern.ends_with('/') && normalized_path.starts_with(normalized_pattern) {
                 return true;
             }
             
             // Check for glob pattern match
-            if pattern.contains('*') {
-                if let Ok(glob_pattern) = Pattern::new(pattern) {
-                    if glob_pattern.matches(file_path) {
+            if normalized_pattern.contains('*') {
+                if let Ok(glob_pattern) = Pattern::new(normalized_pattern) {
+                    if glob_pattern.matches(normalized_path) {
                         return true;
                     }
                 }

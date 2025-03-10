@@ -18,6 +18,8 @@ Your task is to output a list of file patterns that should be processed. These p
 2. Directory paths to include all files within (e.g., "src/models/")
 3. Glob patterns (e.g., "**/*.rs" for all Rust files)
 
+IMPORTANT: Do NOT include "./" prefix in any file paths. Paths should be relative to the root (e.g., "src/main.rs", not "./src/main.rs").
+
 Focus on files that are most likely related to the issue. Consider:
 - Files mentioned in the issue
 - Files with names related to the issue's domain
@@ -194,6 +196,8 @@ Codebase Tree Structure:
 
 Based on the issue and the codebase structure, provide a list of file patterns that should be processed for relevance assessment.
 Remember to include exact file paths, directory paths, or glob patterns that are most likely to contain code relevant to solving the issue.
+
+IMPORTANT: Do NOT include "./" prefix in any file paths. Paths should be relative to the root (e.g., "src/main.rs", not "./src/main.rs").
 
 Output your decision as a JSON array of strings as specified in the system prompt.
 "#, problem.problem_statement, tree_output)
