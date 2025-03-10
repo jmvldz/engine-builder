@@ -305,7 +305,7 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
     info!("Starting file ranking");
     
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&config.llm).await
         .context("Failed to create LLM client")?;
     
     info!("Processing problem: {}", problem.id);

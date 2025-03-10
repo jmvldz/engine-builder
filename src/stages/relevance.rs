@@ -192,7 +192,7 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
     info!("Starting relevance assessment");
     
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&config.llm).await
         .context("Failed to create LLM client")?;
     
     info!("Processing problem: {}", problem.id);

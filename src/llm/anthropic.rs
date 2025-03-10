@@ -34,10 +34,31 @@ struct AnthropicUsage {
     output_tokens: usize,
 }
 
+use std::sync::RwLock;
+use std::collections::HashMap;
+
+/// Anthropic pricing response structure  
+#[derive(Debug, Deserialize)]
+struct AnthropicPricingResponse {
+    #[allow(dead_code)]
+    models: Vec<AnthropicModelPricing>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicModelPricing {
+    #[allow(dead_code)]
+    name: String,
+    #[allow(dead_code)]
+    input_price: Option<f64>,
+    #[allow(dead_code)]
+    output_price: Option<f64>,
+}
+
 /// A client for the Anthropic API
 pub struct AnthropicClient {
     client: Client,
     config: LLMConfig,
+    pricing_cache: RwLock<HashMap<String, (f64, f64)>>,
 }
 
 impl AnthropicClient {
@@ -73,11 +94,18 @@ impl AnthropicClient {
         Ok(Self {
             client,
             config: config.clone(),
+            pricing_cache: RwLock::new(HashMap::new()),
         })
     }
     
-    /// Get token pricing for the configured model
+    /// Get token pricing for the configured model - fallback to static values if not in cache
     fn get_model_pricing(&self) -> (f64, f64) {
+        // Try to get from cache first
+        if let Some(pricing) = self.pricing_cache.read().unwrap().get(&self.config.model) {
+            return *pricing;
+        }
+        
+        // Fallback to hardcoded pricing
         match self.config.model.as_str() {
             m if m.contains("claude-3-opus") => (0.015, 0.075),
             m if m.contains("claude-3-sonnet") => (0.003, 0.015),
@@ -170,5 +198,42 @@ impl LLMClient for AnthropicClient {
     
     fn get_token_prices(&self) -> (f64, f64) {
         self.get_model_pricing()
+    }
+    
+    async fn fetch_pricing_data(&self) -> Result<()> {
+        debug!("Fetching Anthropic pricing data");
+        
+        let base_url = self.config.base_url.as_deref().unwrap_or("https://api.anthropic.com");
+        let url = format!("{}/v1/models", base_url);
+        
+        let response = self.client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to fetch Anthropic models for pricing")?;
+            
+        if !response.status().is_success() {
+            let error_text = response.text().await
+                .context("Failed to read error response from Anthropic API")?;
+            debug!("Error fetching Anthropic pricing: {}", error_text);
+            return Ok(()); // Continue with hardcoded pricing
+        }
+        
+        let _response_text = response.text().await
+            .context("Failed to read response text from Anthropic API")?;
+        
+        // Anthropic doesn't currently provide pricing in their API
+        // We would need to fetch from their pricing page or use another source
+        // For now, we'll populate the cache with the static values
+        
+        let model_name = self.config.model.clone();
+        let pricing = self.get_model_pricing(); // Get hardcoded pricing
+        
+        // Update cache
+        let mut pricing_cache = self.pricing_cache.write().unwrap();
+        pricing_cache.insert(model_name, pricing);
+        
+        debug!("Updated pricing cache for Anthropic model");
+        Ok(())
     }
 }

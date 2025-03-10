@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use anyhow::Result;
 use std::fmt;
+use log;
 
 use crate::config::LLMConfig;
 use crate::llm::openai::OpenAIClient;
@@ -73,6 +74,13 @@ pub trait LLMClient: Send + Sync {
     /// Get the cost per 1K tokens for prompt and completion
     fn get_token_prices(&self) -> (f64, f64);
     
+    /// Fetch the latest pricing data from the provider API
+    async fn fetch_pricing_data(&self) -> Result<()> {
+        // Default implementation does nothing
+        // Providers should override this method to fetch pricing
+        Ok(())
+    }
+    
     /// Calculate cost from token usage
     fn calculate_cost(&self, usage: &TokenUsage) -> TokenCost {
         let (prompt_price, completion_price) = self.get_token_prices();
@@ -80,17 +88,24 @@ pub trait LLMClient: Send + Sync {
     }
 }
 
-/// Create an LLM client from a configuration
-pub fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
-    match config.model_type.as_str() {
+/// Create an LLM client from a configuration and fetch pricing data
+pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
+    let client: Box<dyn LLMClient> = match config.model_type.as_str() {
         "openai" => {
             let client = OpenAIClient::new(config)?;
-            Ok(Box::new(client))
+            Box::new(client)
         },
         "anthropic" => {
             let client = AnthropicClient::new(config)?;
-            Ok(Box::new(client))
+            Box::new(client)
         },
-        _ => Err(anyhow::anyhow!("Unsupported LLM type: {}", config.model_type)),
+        _ => return Err(anyhow::anyhow!("Unsupported LLM type: {}", config.model_type)),
+    };
+    
+    // Fetch pricing data after creating the client
+    if let Err(e) = client.fetch_pricing_data().await {
+        log::warn!("Failed to fetch pricing data: {}. Using fallback pricing.", e);
     }
+    
+    Ok(client)
 }
