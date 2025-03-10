@@ -32,9 +32,6 @@ pub struct CodebaseConfig {
     /// Custom problem statement/prompt
     pub problem_statement: String,
     
-    /// File extensions to include (e.g. ["py", "js"])
-    pub include_extensions: Vec<String>,
-    
     /// Directories to exclude (e.g. ["tests", "docs"])
     pub exclude_dirs: Vec<String>,
 }
@@ -104,7 +101,6 @@ impl Config {
                 path: PathBuf::from("."),
                 problem_id: "custom_problem".to_string(),
                 problem_statement: "Please analyze this codebase".to_string(),
-                include_extensions: vec!["py".to_string(), "js".to_string(), "rs".to_string()],
                 exclude_dirs: vec!["tests".to_string(), "docs".to_string()],
             },
         }
