@@ -33,10 +33,37 @@ struct OpenAIUsage {
     total_tokens: usize,
 }
 
+use std::sync::RwLock;
+use std::collections::HashMap;
+
+/// OpenAI pricing response structure
+#[derive(Debug, Deserialize)]
+struct OpenAIPricingResponse {
+    #[allow(dead_code)]
+    data: Vec<OpenAIPricingModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIPricingModel {
+    #[allow(dead_code)]
+    id: String,
+    #[allow(dead_code)]
+    pricing: Option<OpenAIModelPricing>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIModelPricing {
+    #[allow(dead_code)]
+    input: Option<f64>,
+    #[allow(dead_code)]
+    output: Option<f64>,
+}
+
 /// A client for the OpenAI API
 pub struct OpenAIClient {
     client: Client,
     config: LLMConfig,
+    pricing_cache: RwLock<HashMap<String, (f64, f64)>>,
 }
 
 impl OpenAIClient {
@@ -66,11 +93,18 @@ impl OpenAIClient {
         Ok(Self {
             client,
             config: config.clone(),
+            pricing_cache: RwLock::new(HashMap::new()),
         })
     }
     
-    /// Get token pricing for the configured model
+    /// Get token pricing for the configured model - fallback to static values if not in cache
     fn get_model_pricing(&self) -> (f64, f64) {
+        // Try to get from cache first
+        if let Some(pricing) = self.pricing_cache.read().unwrap().get(&self.config.model) {
+            return *pricing;
+        }
+        
+        // Fallback to hardcoded pricing if not in cache
         match self.config.model.as_str() {
             "gpt-4" => (0.03, 0.06),
             "gpt-4-32k" => (0.06, 0.12),
@@ -155,5 +189,39 @@ impl LLMClient for OpenAIClient {
     
     fn get_token_prices(&self) -> (f64, f64) {
         self.get_model_pricing()
+    }
+    
+    async fn fetch_pricing_data(&self) -> Result<()> {
+        debug!("Fetching OpenAI pricing data");
+        
+        let base_url = self.config.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
+        let url = format!("{}/models", base_url);
+        
+        let response = self.client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to fetch OpenAI models for pricing")?;
+            
+        if !response.status().is_success() {
+            let error_text = response.text().await
+                .context("Failed to read error response from OpenAI API")?;
+            debug!("Error fetching OpenAI pricing: {}", error_text);
+            return Ok(()); // Continue with hardcoded pricing
+        }
+        
+        // OpenAI doesn't expose pricing in their API directly
+        // We would need to parse from their pricing page or use another source
+        // For now, we'll populate the cache with the static values for the current model
+        
+        let model_name = self.config.model.clone();
+        let pricing = self.get_model_pricing(); // Get hardcoded pricing
+        
+        // Update cache
+        let mut pricing_cache = self.pricing_cache.write().unwrap();
+        pricing_cache.insert(model_name, pricing);
+        
+        debug!("Updated pricing cache for OpenAI model");
+        Ok(())
     }
 }

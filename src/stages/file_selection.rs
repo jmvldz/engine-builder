@@ -54,7 +54,7 @@ pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &Code
     info!("Starting file selection process");
     
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&config.llm).await
         .context("Failed to create LLM client")?;
     
     // Initialize the problem to scan the codebase
@@ -123,7 +123,7 @@ pub async fn process_file_selection(config: RelevanceConfig, codebase_config: &C
     let (file_patterns, token_usage) = run_file_selection(&config, codebase_config, &problem).await?;
     
     // Create the LLM client to access pricing information
-    let client = create_client(&config.llm)
+    let client = create_client(&config.llm).await
         .context("Failed to create LLM client")?;
     let cost = client.calculate_cost(&token_usage);
     
