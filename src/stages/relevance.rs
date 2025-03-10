@@ -154,41 +154,35 @@ async fn assess_file_relevance(
     client: &dyn LLMClient,
     config: &RelevanceConfig,
     trajectory_store: &TrajectoryStore,
-) -> Result<()> {
+) -> Result<crate::llm::client::TokenUsage> {
     // Check if we already have a relevance decision for this file
     if trajectory_store.relevance_decision_exists(file_path) {
         debug!("Skipping already assessed file: {}", file_path);
-        return Ok(());
+        return Ok(crate::llm::client::TokenUsage::default());
     }
     
     // Check if the file is too large
     let token_count = count_tokens(file_content);
     if token_count > config.max_file_tokens {
         warn!("File too large ({}): {}", token_count, file_path);
-        return Ok(());
+        return Ok(crate::llm::client::TokenUsage::default());
     }
     
     // Generate the prompt
     let prompt = get_relevance_user_prompt(problem, file_path, file_content);
     
     // Send the request to the LLM
-    // Using completion instead of chat API messages
-    // let _messages = vec![
-    //     ("system", RELEVANCE_SYSTEM_PROMPT),
-    //     ("user", &prompt),
-    // ];
-    
-    let response = client.completion(&prompt, config.max_tokens, 0.0).await
+    let llm_response = client.completion(&prompt, config.max_tokens, 0.0).await
         .context(format!("Failed to get completion for file: {}", file_path))?;
     
     // Parse the response
-    let relevance_decision = parse_response(&response);
+    let relevance_decision = parse_response(&llm_response.content);
     
     // Save the decision
     trajectory_store.save_per_file_relevance_decision(file_path, relevance_decision)
         .context(format!("Failed to save relevance decision for file: {}", file_path))?;
     
-    Ok(())
+    Ok(llm_response.usage)
 }
 
 use crate::stages::file_selection::{run_file_selection, save_file_patterns};
@@ -217,7 +211,10 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
         .context(format!("Failed to create trajectory store for problem: {}", configured_problem.id))?;
     
     // Run file selection to get file patterns
-    let file_patterns = run_file_selection(&config, codebase_config, &configured_problem).await?;
+    let (file_patterns, file_selection_usage) = run_file_selection(&config, codebase_config, &configured_problem).await?;
+    
+    // Track total token usage across all LLM calls
+    let mut total_usage = file_selection_usage;
     
     // Save the file patterns for future reference
     save_file_patterns(&config.trajectory_store_dir, &configured_problem, &file_patterns)?;
@@ -267,7 +264,7 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
                 if file_content.is_empty() {
                     progress_bar_ref.inc(1);
                     progress_bar_ref.set_message(format!("Skipped (empty): {}", file_path_clone));
-                    return Ok(());
+                    return Ok(crate::llm::client::TokenUsage::default());
                 }
                 
                 let result = assess_file_relevance(
@@ -291,10 +288,24 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
         })
     ).buffer_unordered(config.max_workers);
     
-    // Process all futures
-    futures.for_each(|_| async {}).await;
+    // Collect all the futures results
+    let usage_results = futures.collect::<Vec<_>>().await;
     
     progress_bar.finish_with_message(format!("Completed problem: {}", configured_problem.id));
+    
+    // Aggregate token usage across all relevance assessments
+    for result in usage_results {
+        if let Ok(usage) = result {
+            total_usage.prompt_tokens += usage.prompt_tokens;
+            total_usage.completion_tokens += usage.completion_tokens;
+            total_usage.total_tokens += usage.total_tokens;
+        }
+    }
+    
+    // Calculate and display cost
+    let cost = client.calculate_cost(&total_usage);
+    info!("Relevance assessment LLM usage: {}", total_usage);
+    info!("Relevance assessment LLM cost: {}", cost);
     
     info!("Relevance assessment completed");
     Ok(())

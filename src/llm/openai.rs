@@ -4,15 +4,15 @@ use reqwest::{Client, header};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
+use log::debug;
 
 use crate::config::LLMConfig;
-use crate::llm::client::LLMClient;
+use crate::llm::client::{LLMClient, LLMResponse, TokenUsage};
 
 /// OpenAI API response for chat completions
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
     choices: Vec<OpenAIChoice>,
-    #[allow(dead_code)]
     usage: Option<OpenAIUsage>,
 }
 
@@ -28,11 +28,8 @@ struct OpenAIMessage {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIUsage {
-    #[allow(dead_code)]
     prompt_tokens: usize,
-    #[allow(dead_code)]
     completion_tokens: usize,
-    #[allow(dead_code)]
     total_tokens: usize,
 }
 
@@ -71,11 +68,26 @@ impl OpenAIClient {
             config: config.clone(),
         })
     }
+    
+    /// Get token pricing for the configured model
+    fn get_model_pricing(&self) -> (f64, f64) {
+        match self.config.model.as_str() {
+            "gpt-4" => (0.03, 0.06),
+            "gpt-4-32k" => (0.06, 0.12),
+            "gpt-4-turbo" | "gpt-4-1106-preview" | "gpt-4-0125-preview" => (0.01, 0.03),
+            "gpt-4o" | "gpt-4o-2024-05-13" => (0.005, 0.015),
+            "gpt-3.5-turbo" | "gpt-3.5-turbo-1106" => (0.0015, 0.002),
+            _ => {
+                debug!("Unknown model pricing for {}, using GPT-4 pricing", self.config.model);
+                (0.03, 0.06)
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl LLMClient for OpenAIClient {
-    async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<String> {
+    async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<LLMResponse> {
         let base_url = self.config.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
         let url = format!("{}/chat/completions", base_url);
         
@@ -118,10 +130,30 @@ impl LLMClient for OpenAIClient {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("OpenAI API returned null content"))?;
         
-        Ok(content)
+        // Extract usage information
+        let usage = if let Some(api_usage) = response_data.usage {
+            TokenUsage {
+                prompt_tokens: api_usage.prompt_tokens,
+                completion_tokens: api_usage.completion_tokens,
+                total_tokens: api_usage.total_tokens,
+            }
+        } else {
+            // Fallback if API doesn't return usage
+            debug!("No usage information returned from OpenAI API");
+            TokenUsage::default()
+        };
+        
+        Ok(LLMResponse {
+            content,
+            usage,
+        })
     }
     
     fn name(&self) -> &str {
         "openai"
+    }
+    
+    fn get_token_prices(&self) -> (f64, f64) {
+        self.get_model_pricing()
     }
 }
