@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use codemonkeys_rs::config::Config;
-use codemonkeys_rs::stages::{relevance, ranking};
+use codemonkeys_rs::stages::{relevance, ranking, file_selection};
 use codemonkeys_rs::models::problem::SWEBenchProblem;
 use log::info;
 use std::path::PathBuf;
@@ -36,6 +36,8 @@ enum Command {
     Ranking,
     /// Run full pipeline (relevance then ranking)
     Pipeline,
+    /// Run only the file selection step
+    FileSelection,
 }
 
 /// Create a problem from the CLI args and config
@@ -45,7 +47,6 @@ fn create_problem(cli: &Cli, config: &Config) -> SWEBenchProblem {
     
     SWEBenchProblem::new(problem_id, problem_statement)
         .with_codebase_path(&config.codebase.path)
-        .with_extensions(config.codebase.include_extensions.clone())
         .with_exclude_dirs(config.codebase.exclude_dirs.clone())
 }
 
@@ -77,6 +78,10 @@ async fn main() -> Result<()> {
             info!("Running full pipeline");
             relevance::process_codebase(config.relevance, &config.codebase, problem.clone()).await?;
             ranking::process_rankings(config.ranking, problem.clone()).await?;
+        },
+        Command::FileSelection => {
+            info!("Running file selection process");
+            file_selection::process_file_selection(config.relevance, &config.codebase, problem.clone()).await?;
         }
     }
     

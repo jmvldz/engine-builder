@@ -1,6 +1,43 @@
 use crate::models::problem::SWEBenchProblem;
 use crate::models::ranking::RelevantFileDataForPrompt;
 
+/// System prompt for codebase tree analysis to determine which files to assess
+pub const CODEBASE_TREE_SYSTEM_PROMPT: &str = r#"You are going to analyze a directory structure of a codebase to decide which files and directories are worth processing to solve a GitHub issue.
+
+Your goal is to identify files that:
+1. Might need to be edited to solve the issue
+2. Are crucial for understanding the changes needed
+3. Provide important context about the codebase architecture
+
+You will be given:
+1. A GitHub issue description (provided within <issue></issue> tags)
+2. A tree representation of the codebase (provided within <tree></tree> tags)
+
+Your task is to output a list of file patterns that should be processed. These patterns can be:
+1. Exact file paths (e.g., "src/main.rs")
+2. Directory paths to include all files within (e.g., "src/models/")
+3. Glob patterns (e.g., "**/*.rs" for all Rust files)
+
+Focus on files that are most likely related to the issue. Consider:
+- Files mentioned in the issue
+- Files with names related to the issue's domain
+- Core files that might need modification
+- Configuration files that might be relevant
+- Test files may be useful for understanding but are less likely to need changes
+
+Your output format should be a JSON array of strings surrounded by triple backticks:
+
+```json
+[
+  "src/specific_file.rs",
+  "src/models/relevant_module.rs",
+  "config/relevant_config.json"
+]
+```
+
+The patterns in your output will be used to determine which files should be processed for relevance assessment. Be selective but thorough - including too many files will waste computation resources, but missing important files could prevent the issue from being solved.
+"#;
+
 /// System prompt for the relevance assessment
 pub const RELEVANCE_SYSTEM_PROMPT: &str = r#"You are going to decide if a file in a codebase may need to be edited to resolve to a github issue.
 
@@ -139,6 +176,28 @@ This final ranking format must be strictly followed. It will be automatically pa
 Your ranking will be crucial for the next steps in addressing the GitHub issue, so think carefully about the order and provide clear reasoning for your decisions.
 
 IMPORTANT: Your ranking should be the FINAL thing you output. You MUST deliberate and work through the problem BEFORE giving your final ranking. Think through the tradeoffs and about how you want to spend your budget best. Do not give the ranking first and then explain your reasoning afterwards."#;
+
+/// Generate a user prompt for codebase tree analysis
+pub fn get_codebase_tree_user_prompt(problem: &SWEBenchProblem, tree_output: &str) -> String {
+    format!(r#"
+Please analyze the following codebase structure to determine which files and directories should be processed to solve the given GitHub issue.
+
+GitHub Issue Description:
+<issue>
+{}
+</issue>
+
+Codebase Tree Structure:
+<tree>
+{}
+</tree>
+
+Based on the issue and the codebase structure, provide a list of file patterns that should be processed for relevance assessment.
+Remember to include exact file paths, directory paths, or glob patterns that are most likely to contain code relevant to solving the issue.
+
+Output your decision as a JSON array of strings as specified in the system prompt.
+"#, problem.problem_statement, tree_output)
+}
 
 /// Generate a ranking prompt for file ranking
 pub fn get_ranking_user_prompt(

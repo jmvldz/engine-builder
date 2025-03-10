@@ -1,4 +1,3 @@
-use std::path::Path;
 use anyhow::{Result, Context};
 use log::{info, debug, warn};
 use regex::Regex;
@@ -8,10 +7,11 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::config::{RelevanceConfig, CodebaseConfig};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::{RelevanceDecision, RelevanceStatus};
+use crate::models::file::FilePatternSelection;
 use crate::utils::token_counter::count_tokens;
 use crate::utils::trajectory_store::TrajectoryStore;
 use crate::llm::client::{LLMClient, create_client};
-use crate::llm::prompts::{RELEVANCE_SYSTEM_PROMPT, get_relevance_user_prompt};
+use crate::llm::prompts::get_relevance_user_prompt;
 
 /// Parse the LLM response to extract the relevance decision
 fn parse_response(response: &str) -> RelevanceDecision {
@@ -140,33 +140,10 @@ fn parse_response(response: &str) -> RelevanceDecision {
     }
 }
 
+
 /// Check if a file should be included in the relevance assessment
-fn should_include_file(file_path: &str, problem: &SWEBenchProblem) -> bool {
-    // Check if the file extension is in the configured include_extensions
-    if !problem.include_extensions.is_empty() {
-        if let Some(extension) = Path::new(file_path).extension() {
-            if let Some(ext_str) = extension.to_str() {
-                if !problem.include_extensions.contains(&ext_str.to_string()) {
-                    return false;
-                }
-            } else {
-                return false; // Can't parse extension
-            }
-        } else {
-            return false; // No extension
-        }
-    }
-    
-    // Exclude test directories as a heuristic
-    let path = Path::new(file_path);
-    if let Some(first_dir) = path.iter().next() {
-        let dir_name = first_dir.to_string_lossy();
-        if dir_name == "test" || dir_name == "tests" {
-            return false;
-        }
-    }
-    
-    true
+fn should_process_file(file_path: &str, file_patterns: &FilePatternSelection) -> bool {
+    file_patterns.matches(file_path)
 }
 
 /// Assess the relevance of a file to a problem
@@ -195,10 +172,11 @@ async fn assess_file_relevance(
     let prompt = get_relevance_user_prompt(problem, file_path, file_content);
     
     // Send the request to the LLM
-    let _messages = vec![
-        ("system", RELEVANCE_SYSTEM_PROMPT),
-        ("user", &prompt),
-    ];
+    // Using completion instead of chat API messages
+    // let _messages = vec![
+    //     ("system", RELEVANCE_SYSTEM_PROMPT),
+    //     ("user", &prompt),
+    // ];
     
     let response = client.completion(&prompt, config.max_tokens, 0.0).await
         .context(format!("Failed to get completion for file: {}", file_path))?;
@@ -213,6 +191,8 @@ async fn assess_file_relevance(
     Ok(())
 }
 
+use crate::stages::file_selection::{run_file_selection, save_file_patterns};
+
 /// Process the codebase to assess file relevance
 pub async fn process_codebase(config: RelevanceConfig, codebase_config: &CodebaseConfig, problem: SWEBenchProblem) -> Result<()> {
     info!("Starting relevance assessment");
@@ -226,7 +206,6 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
     // Setup the problem with codebase configuration
     let mut configured_problem = problem
         .with_codebase_path(&codebase_config.path)
-        .with_extensions(codebase_config.include_extensions.clone())
         .with_exclude_dirs(codebase_config.exclude_dirs.clone());
     
     // Initialize the problem to scan the codebase
@@ -237,15 +216,21 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
     let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &configured_problem)
         .context(format!("Failed to create trajectory store for problem: {}", configured_problem.id))?;
     
-    // Get all file paths for this problem
-    let file_paths = configured_problem.all_file_paths();
-    info!("Found {} files in codebase", file_paths.len());
+    // Run file selection to get file patterns
+    let file_patterns = run_file_selection(&config, codebase_config, &configured_problem).await?;
     
-    let relevant_files: Vec<_> = file_paths.into_iter()
-        .filter(|path| should_include_file(path, &configured_problem))
+    // Save the file patterns for future reference
+    save_file_patterns(&config.trajectory_store_dir, &configured_problem, &file_patterns)?;
+    
+    // Get all file paths for this problem
+    let all_files = configured_problem.all_file_paths();
+    
+    // Filter files based on the LLM's selection
+    let relevant_files: Vec<_> = all_files.into_iter()
+        .filter(|path| should_process_file(path, &file_patterns))
         .collect();
     
-    info!("Found {} relevant files after filtering: {}", relevant_files.len(), configured_problem.id);
+    info!("Found {} matching files for problem: {}", relevant_files.len(), configured_problem.id);
     
     // Set up progress bar
     let progress_bar = ProgressBar::new(relevant_files.len() as u64);

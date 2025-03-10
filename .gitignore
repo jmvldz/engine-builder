@@ -1,2 +1,5 @@
 config.json
 data/
+/target/
+**/*.rs.bk
+*.pdb

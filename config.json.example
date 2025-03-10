@@ -33,7 +33,6 @@
     "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",
     "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
-    "include_extensions": ["py", "js", "rs"],
     "exclude_dirs": ["tests", "docs", "node_modules", "target", "build"]
   }
 }

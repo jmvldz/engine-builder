@@ -27,10 +27,6 @@ pub struct SWEBenchProblem {
     #[serde(skip)]
     codebase_path: Option<PathBuf>,
     
-    /// File extensions to include (not serialized)
-    #[serde(skip)]
-    pub include_extensions: Vec<String>,
-    
     /// Directories to exclude (not serialized)
     #[serde(skip)]
     pub exclude_dirs: Vec<String>,
@@ -49,7 +45,6 @@ impl SWEBenchProblem {
             metadata: HashMap::new(),
             file_cache: HashMap::new(),
             codebase_path: None,
-            include_extensions: Vec::new(),
             exclude_dirs: Vec::new(),
             cached_paths: Vec::new(),
         }
@@ -58,12 +53,6 @@ impl SWEBenchProblem {
     /// Set the codebase path
     pub fn with_codebase_path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.codebase_path = Some(path.as_ref().to_path_buf());
-        self
-    }
-    
-    /// Set extensions to include
-    pub fn with_extensions(mut self, extensions: Vec<String>) -> Self {
-        self.include_extensions = extensions;
         self
     }
     
@@ -126,22 +115,122 @@ impl SWEBenchProblem {
             }
         }
         
-        // Check file extension
-        if entry.file_type().is_file() && !self.include_extensions.is_empty() {
-            if let Some(extension) = entry.path().extension() {
-                if let Some(ext_str) = extension.to_str() {
-                    return !self.include_extensions.contains(&ext_str.to_string());
-                }
-            }
-            return true; // No extension means exclude
-        }
-        
         false
     }
     
     /// Get all file paths in the codebase
     pub fn all_file_paths(&self) -> Vec<String> {
         self.cached_paths.clone()
+    }
+    
+    /// Generate a tree-like representation of the codebase
+    pub fn generate_tree(&self) -> String {
+        if self.codebase_path.is_none() {
+            return String::new();
+        }
+        
+        let _codebase_path = self.codebase_path.as_ref().unwrap();
+        let mut result = String::new();
+        
+        // Create a map of directories to their files and subdirectories
+        let mut dir_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        
+        for path in &self.cached_paths {
+            let parent = path.rfind('/').map_or("", |i| &path[0..i]);
+            dir_map.entry(parent.to_string())
+                .or_insert_with(Vec::new)
+                .push(path.clone());
+        }
+        
+        // Function to print a directory tree recursively
+        fn print_dir(
+            dir: &str,
+            dir_map: &std::collections::HashMap<String, Vec<String>>,
+            result: &mut String,
+            prefix: &str,
+            is_last: bool,
+        ) {
+            // Print directory name
+            let dir_name = if dir.is_empty() {
+                "."
+            } else {
+                dir.split('/').last().unwrap_or(dir)
+            };
+            
+            let branch = if is_last { "└── " } else { "├── " };
+            result.push_str(&format!("{}{}{}/\n", prefix, branch, dir_name));
+            
+            // Prepare the prefix for children
+            let child_prefix = if is_last {
+                format!("{}    ", prefix)
+            } else {
+                format!("{}│   ", prefix)
+            };
+            
+            // Get files and subdirectories in this directory
+            let mut entries = Vec::new();
+            if let Some(files) = dir_map.get(dir) {
+                for file in files {
+                    if file.starts_with(dir) && file != dir {
+                        let rel_path = if dir.is_empty() {
+                            file.clone()
+                        } else {
+                            file[dir.len() + 1..].to_string()
+                        };
+                        
+                        if !rel_path.contains('/') {
+                            // This is a file
+                            entries.push((rel_path, false));
+                        } else {
+                            // This is a subdirectory
+                            let subdir = rel_path.split('/').next().unwrap_or("");
+                            let _full_subdir = if dir.is_empty() {
+                                subdir.to_string()
+                            } else {
+                                format!("{}/{}", dir, subdir)
+                            };
+                            
+                            // Only add the directory if we haven't added it already
+                            if !entries.iter().any(|(name, _)| name == subdir) {
+                                entries.push((subdir.to_string(), true));
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Sort entries: directories first, then files
+            entries.sort_by(|a, b| {
+                match (a.1, b.1) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.0.cmp(&b.0),
+                }
+            });
+            
+            // Print entries
+            for (i, (name, is_dir)) in entries.iter().enumerate() {
+                let is_last_entry = i == entries.len() - 1;
+                
+                if *is_dir {
+                    let full_path = if dir.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}/{}", dir, name)
+                    };
+                    
+                    print_dir(&full_path, dir_map, result, &child_prefix, is_last_entry);
+                } else {
+                    let branch = if is_last_entry { "└── " } else { "├── " };
+                    result.push_str(&format!("{}{}{}\n", child_prefix, branch, name));
+                }
+            }
+        }
+        
+        // Start with the root directory
+        print_dir("", &dir_map, &mut result, "", true);
+        
+        result
     }
     
     /// Get a specific file from the codebase
