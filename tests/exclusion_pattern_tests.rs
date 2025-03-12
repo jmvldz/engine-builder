@@ -65,8 +65,11 @@ async fn test_exclusion_patterns() {
     let mut normal_file = File::create(temp_path.join("README.md")).expect("Failed to create README file");
     normal_file.write_all(b"# Project").expect("Failed to write to README file");
     
-    // Initialize the problem with the temp directory and exclusion patterns
-    let exclusion_config = ExclusionConfig::default();
+    // Create a test-specific exclusion config that doesn't exclude the test directory
+    let mut exclusion_config = ExclusionConfig::default();
+    // Make sure our test-specific config doesn't include "tests" in directories_to_skip
+    exclusion_config.directories_to_skip.retain(|dir| dir != "tests");
+    
     let mut problem = SWEBenchProblem::new("test-exclusion".to_string(), "Testing exclusion patterns".to_string())
         .with_codebase_path(temp_path)
         .with_exclusion_config(exclusion_config);
