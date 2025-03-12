@@ -1,9 +1,9 @@
 use anyhow::{Result, Context};
-use log::{info, debug};
+use log::{info, debug, warn};
 use regex::Regex;
 use serde_json;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::{RelevanceConfig, CodebaseConfig};
 use crate::models::problem::SWEBenchProblem;
@@ -14,22 +14,37 @@ use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Parse the LLM response to extract the file patterns
 pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
+    info!("Parsing file patterns from LLM response");
+    
     // Try to extract a JSON array from the response
     let json_pattern = Regex::new(r"```(?:json)?\s*(\[[\s\S]*?\])```").unwrap();
     
     if let Some(captures) = json_pattern.captures(response) {
         if let Some(json_str) = captures.get(1) {
-            let patterns: Vec<String> = serde_json::from_str(json_str.as_str())
-                .context("Failed to parse file patterns JSON")?;
+            info!("Found JSON pattern in response");
+            let json_content = json_str.as_str();
+            debug!("Extracted JSON content: {}", json_content);
             
-            return Ok(FilePatternSelection::new(patterns));
+            match serde_json::from_str::<Vec<String>>(json_content) {
+                Ok(patterns) => {
+                    info!("Successfully parsed {} file patterns from JSON", patterns.len());
+                    return Ok(FilePatternSelection::new(patterns));
+                },
+                Err(e) => {
+                    warn!("Failed to parse JSON content: {}", e);
+                    // Continue to fallback pattern
+                }
+            }
         }
+    } else {
+        info!("No JSON pattern found in response, trying fallback pattern");
     }
     
     // If regex didn't match, try to find any list-like structure
     let fallback_pattern = Regex::new(r"\[([\s\S]*?)\]").unwrap();
     if let Some(captures) = fallback_pattern.captures(response) {
         if let Some(list_str) = captures.get(1) {
+            info!("Found array-like pattern in response");
             // Try to split by commas and clean up each entry
             let patterns: Vec<String> = list_str.as_str()
                 .split(',')
@@ -40,9 +55,21 @@ pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
                 .collect();
             
             if !patterns.is_empty() {
+                info!("Successfully parsed {} file patterns using fallback method", patterns.len());
                 return Ok(FilePatternSelection::new(patterns));
+            } else {
+                warn!("Found array-like pattern but no valid patterns after cleaning");
             }
         }
+    } else {
+        warn!("No array-like pattern found in response");
+    }
+    
+    // For debugging purposes, log a portion of the response
+    if response.len() > 500 {
+        warn!("Response excerpt (first 500 chars): {}", &response[..500]);
+    } else {
+        warn!("Full response: {}", response);
     }
     
     // If all else fails, return an error
@@ -73,12 +100,51 @@ pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &Code
     info!("Generating codebase tree structure");
     let tree_output = configured_problem.generate_tree();
     
+    // Save the tree output to a file
+    let tree_path = Path::new(&config.trajectory_store_dir)
+        .join(&configured_problem.id)
+        .join("codebase_tree.txt");
+    
+    // Create the directory if it doesn't exist
+    if let Some(parent) = tree_path.parent() {
+        fs::create_dir_all(parent)
+            .context(format!("Failed to create directory for tree output: {:?}", parent))?;
+    }
+    
+    // Write the tree output to a file
+    fs::write(&tree_path, &tree_output)
+        .context(format!("Failed to write tree output to: {:?}", tree_path))?;
+    
+    info!("Saved codebase tree to: {:?}", tree_path);
+    
     // Ask the LLM which files to process based on the tree
     info!("Asking LLM to select files for processing");
     let tree_prompt = get_codebase_tree_user_prompt(&configured_problem, &tree_output);
     
+    // Save the prompt to a file
+    let prompt_path = Path::new(&config.trajectory_store_dir)
+        .join(&configured_problem.id)
+        .join("codebase_tree_prompt.txt");
+    
+    // Write the prompt to a file
+    fs::write(&prompt_path, &tree_prompt)
+        .context(format!("Failed to write prompt to: {:?}", prompt_path))?;
+    
+    info!("Saved prompt to: {:?}", prompt_path);
+    
     let llm_response = client.completion(&tree_prompt, config.max_tokens, 0.0).await
         .context("Failed to get file selection from LLM")?;
+    
+    // Save the LLM response to a file
+    let response_path = Path::new(&config.trajectory_store_dir)
+        .join(&configured_problem.id)
+        .join("codebase_tree_response.txt");
+    
+    // Write the LLM response to a file
+    fs::write(&response_path, &llm_response.content)
+        .context(format!("Failed to write LLM response to: {:?}", response_path))?;
+    
+    info!("Saved LLM response to: {:?}", response_path);
     
     let file_patterns = parse_file_patterns(&llm_response.content)
         .context("Failed to parse file patterns from LLM response")?;

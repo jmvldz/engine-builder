@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use codemonkeys_rs::config::Config;
-use codemonkeys_rs::stages::{relevance, ranking, file_selection};
+use codemonkeys_rs::stages::{relevance, ranking, file_selection, dockerfile};
 use codemonkeys_rs::models::problem::SWEBenchProblem;
 use log::info;
 use std::path::PathBuf;
@@ -38,6 +38,8 @@ enum Command {
     Pipeline,
     /// Run only the file selection step
     FileSelection,
+    /// Generate a Dockerfile based on the ranked files
+    Dockerfile,
 }
 
 /// Create a problem from the CLI args and config
@@ -52,7 +54,13 @@ fn create_problem(cli: &Cli, config: &Config) -> SWEBenchProblem {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize the logger
+    // Log level can be controlled by setting the RUST_LOG environment variable
+    // e.g., RUST_LOG=info cargo run --release -- -c config.json pipeline
+    // or RUST_LOG=debug for more detailed logs
     env_logger::init();
+    
+    info!("Starting CodeMonkeys-rs. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
     
     let cli = Cli::parse();
     let mut config = Config::from_file(cli.config_path.as_deref())?;
@@ -82,6 +90,10 @@ async fn main() -> Result<()> {
         Command::FileSelection => {
             info!("Running file selection process");
             file_selection::process_file_selection(config.relevance, &config.codebase, problem.clone()).await?;
+        },
+        Command::Dockerfile => {
+            info!("Generating Dockerfile based on ranked files");
+            dockerfile::generate_dockerfile(config.ranking, problem.clone()).await?;
         }
     }
     

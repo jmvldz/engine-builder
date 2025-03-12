@@ -1,5 +1,5 @@
 use crate::models::problem::SWEBenchProblem;
-use crate::models::ranking::RelevantFileDataForPrompt;
+use crate::models::ranking::{RelevantFileDataForPrompt, RankedCodebaseFile};
 
 /// System prompt for codebase tree analysis to determine which files to assess
 pub const CODEBASE_TREE_SYSTEM_PROMPT: &str = r#"You are going to analyze a directory structure of a codebase to decide which files and directories are worth processing to solve a GitHub issue.
@@ -239,5 +239,84 @@ File Summaries:
 
 Please provide your ranking and explanation as specified in the system prompt."#,
         formatted_prompt, issue_description, file_summaries.join("\n")
+    )
+}
+
+/// System prompt for Dockerfile generation
+pub const DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile for a project based on the context from provided code files. You will need to determine:
+
+1. The appropriate base image
+2. Required dependencies 
+3. Build steps
+4. Files to copy
+5. Environment variables
+6. Runtime configuration
+7. Entry point or command
+
+The Dockerfile should follow best practices:
+- Use specific image tags instead of 'latest'
+- Leverage layer caching properly 
+- Clean up unnecessary build artifacts
+- Follow multi-stage builds when appropriate
+- Minimize image size
+
+Analyze the code files to understand:
+- The programming language and runtime requirements
+- Package managers used
+- Dependencies needed
+- How the application is built
+- How the application is started
+- Required configuration
+- External services needed
+
+Your output should include:
+1. A detailed explanation of your reasoning
+2. A complete, ready-to-use Dockerfile with comments explaining key decisions
+3. A summary of key choices regarding base image, build process, and runtime configuration
+
+The Dockerfile should be properly formatted and follow Docker best practices.
+"#;
+
+/// Generate a dockerfile generation prompt
+pub fn get_dockerfile_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+    
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+    
+    format!(
+        r#"Please create a Dockerfile for the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a comprehensive Dockerfile that will properly containerize this application.
+Ensure the Dockerfile follows best practices and addresses all the requirements implied by the code.
+
+Your response should include:
+1. Your analysis of the application type, language, and requirements
+2. A complete, ready-to-use Dockerfile with explanatory comments
+3. A brief summary of key decisions made (base image choice, build process, etc.)
+
+Format your Dockerfile between ```dockerfile and ``` tags."#,
+        problem_statement,
+        ranked_files.iter().map(|f| f.path.clone()).collect::<Vec<_>>().join("\n"),
+        file_content_sections.join("\n\n")
     )
 }

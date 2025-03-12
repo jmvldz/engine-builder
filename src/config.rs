@@ -9,6 +9,8 @@ pub struct Config {
     pub relevance: RelevanceConfig,
     pub ranking: RankingConfig,
     pub codebase: CodebaseConfig,
+    #[serde(default)]
+    pub dockerfile: DockerfileConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +58,33 @@ pub struct RankingConfig {
     pub trajectory_store_dir: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockerfileConfig {
+    pub llm: LLMConfig,
+    pub max_tokens: usize,
+    pub temperature: f64,
+    pub output_path: String,
+}
+
+impl Default for DockerfileConfig {
+    fn default() -> Self {
+        Self {
+            llm: LLMConfig {
+                model_type: "anthropic".to_string(),
+                model: "claude-3-opus-20240229".to_string(),
+                api_key: "".to_string(),
+                base_url: None,
+                timeout: 60,
+                max_retries: 3,
+            },
+            max_tokens: 4096,
+            temperature: 0.0,
+            output_path: "Dockerfile".to_string(),
+        }
+    }
+}
+
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
         let path = path.unwrap_or("config.json");
@@ -69,8 +98,8 @@ impl Config {
         Self {
             relevance: RelevanceConfig {
                 llm: LLMConfig {
-                    model_type: "openai".to_string(),
-                    model: "gpt-4".to_string(),
+                    model_type: "anthropic".to_string(),
+                    model: "claude-3-sonnet-20240229".to_string(),
                     api_key: "".to_string(),
                     base_url: None,
                     timeout: 30,
@@ -103,6 +132,7 @@ impl Config {
                 problem_statement: "Please analyze this codebase".to_string(),
                 exclude_dirs: vec!["tests".to_string(), "docs".to_string()],
             },
+            dockerfile: DockerfileConfig::default(),
         }
     }
 }

@@ -1,9 +1,9 @@
 {
   "relevance": {
     "llm": {
-      "model_type": "openai",
-      "model": "gpt-4",
-      "api_key": "your_openai_api_key_here",
+      "model_type": "anthropic",
+      "model": "claude-3-sonnet-20240229",
+      "api_key": "your_anthropic_api_key_here",
       "base_url": null,
       "timeout": 30,
       "max_retries": 3
@@ -28,6 +28,19 @@
     "max_tokens": 4096,
     "temperature": 0.0,
     "trajectory_store_dir": "./data/trajectories"
+  },
+  "dockerfile": {
+    "llm": {
+      "model_type": "anthropic",
+      "model": "claude-3-opus-20240229",
+      "api_key": "your_anthropic_api_key_here",
+      "base_url": null,
+      "timeout": 60,
+      "max_retries": 3
+    },
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "output_path": "Dockerfile"
   },
   "codebase": {
     "path": "./path/to/your/codebase",

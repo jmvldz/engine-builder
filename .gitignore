@@ -1,4 +1,5 @@
 config.json
+config.json.old
 data/
 target/
 **/*.rs.bk
