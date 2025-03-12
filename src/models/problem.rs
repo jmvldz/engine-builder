@@ -138,7 +138,7 @@ impl SWEBenchProblem {
         for path in &self.cached_paths {
             let parent = path.rfind('/').map_or("", |i| &path[0..i]);
             dir_map.entry(parent.to_string())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(path.clone());
         }
         
