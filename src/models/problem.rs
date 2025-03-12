@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use anyhow::{Result, Context};
-use log::info;
+use log::{info, debug};
 use serde::{Deserialize, Serialize};
 use walkdir::{WalkDir, DirEntry};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use super::file::CodebaseFile;
+use super::exclusion::ExclusionConfig;
 
 /// Represents a problem from the SWE-bench dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,13 +30,17 @@ pub struct SWEBenchProblem {
     #[serde(skip)]
     codebase_path: Option<PathBuf>,
     
-    /// Directories to exclude (not serialized)
+    /// Exclusion config (not serialized)
     #[serde(skip)]
-    pub exclude_dirs: Vec<String>,
+    pub exclusion_config: ExclusionConfig,
     
     /// Cached file paths (not serialized)
     #[serde(skip)]
     cached_paths: Vec<String>,
+    
+    /// Gitignore patterns (not serialized)
+    #[serde(skip)]
+    gitignore: Option<Gitignore>,
 }
 
 impl SWEBenchProblem {
@@ -46,8 +52,9 @@ impl SWEBenchProblem {
             metadata: HashMap::new(),
             file_cache: HashMap::new(),
             codebase_path: None,
-            exclude_dirs: Vec::new(),
+            exclusion_config: ExclusionConfig::default(),
             cached_paths: Vec::new(),
+            gitignore: None,
         }
     }
     
@@ -57,9 +64,9 @@ impl SWEBenchProblem {
         self
     }
     
-    /// Set directories to exclude
-    pub fn with_exclude_dirs(mut self, dirs: Vec<String>) -> Self {
-        self.exclude_dirs = dirs;
+    /// Set exclusion config
+    pub fn with_exclusion_config(mut self, config: ExclusionConfig) -> Self {
+        self.exclusion_config = config;
         self
     }
     
@@ -73,6 +80,23 @@ impl SWEBenchProblem {
         
         info!("Starting file tree traversal at: {:?}", codebase_path);
         
+        // Load gitignore file if it exists
+        let gitignore_path = codebase_path.join(".gitignore");
+        if gitignore_path.exists() {
+            info!("Found .gitignore file at: {:?}", gitignore_path);
+            match self.load_gitignore(&gitignore_path, codebase_path) {
+                Ok(gitignore) => {
+                    info!("Successfully loaded .gitignore patterns");
+                    self.gitignore = Some(gitignore);
+                },
+                Err(e) => {
+                    info!("Failed to load .gitignore: {:?}", e);
+                }
+            }
+        } else {
+            info!("No .gitignore file found at: {:?}", gitignore_path);
+        }
+        
         // Scan for files
         let mut paths = Vec::new();
         let mut file_count = 0;
@@ -85,7 +109,7 @@ impl SWEBenchProblem {
             .filter_map(|e| {
                 if let Ok(entry) = e {
                     if entry.file_type().is_dir() {
-                        info!("Exploring directory: {:?}", entry.path());
+                        debug!("Exploring directory: {:?}", entry.path());
                         dir_count += 1;
                     }
                     Some(entry)
@@ -97,14 +121,14 @@ impl SWEBenchProblem {
             .filter(|e| {
                 let should_include = !self.should_exclude(e);
                 if !should_include {
-                    info!("Excluding path: {:?}", e.path());
+                    debug!("Excluding path: {:?}", e.path());
                     excluded_count += 1;
                 }
                 should_include
             })
         {
             if entry.file_type().is_file() {
-                info!("Found file: {:?}", entry.path());
+                debug!("Found file: {:?}", entry.path());
                 file_count += 1;
                 
                 if let Ok(path) = entry.path().strip_prefix(codebase_path) {
@@ -122,29 +146,85 @@ impl SWEBenchProblem {
         Ok(())
     }
     
+    /// Load gitignore patterns from a .gitignore file
+    fn load_gitignore(&self, gitignore_path: &Path, codebase_path: &Path) -> Result<Gitignore> {
+        let mut builder = GitignoreBuilder::new(codebase_path);
+        
+        info!("Loading gitignore from path: {:?}", gitignore_path);
+        
+        // Read the gitignore file content for debugging
+        if let Ok(content) = std::fs::read_to_string(gitignore_path) {
+            info!("Gitignore content:\n{}", content);
+        }
+        
+        // GitignoreBuilder.add returns Option<()>, where None means success
+        match builder.add(gitignore_path) {
+            Some(err) => {
+                info!("Failed to add gitignore file: {}", err);
+                return Err(anyhow::anyhow!("Failed to add gitignore file: {}", err));
+            },
+            None => {
+                info!("Successfully added gitignore file");
+            },
+        }
+        
+        // builder.build() returns Result<Gitignore, ignore::Error>
+        let gitignore = match builder.build() {
+            Ok(gitignore) => {
+                info!("Successfully built gitignore");
+                gitignore
+            },
+            Err(e) => {
+                info!("Failed to build gitignore: {}", e);
+                return Err(anyhow::anyhow!("Failed to build gitignore: {}", e));
+            }
+        };
+        
+        // Test that the gitignore patterns work correctly
+        let test_paths = vec![
+            "target/test.txt",
+            "node_modules/file.js",
+            "example.log",
+            "src/main.rs",
+        ];
+        
+        for test_path in test_paths {
+            let path = codebase_path.join(test_path);
+            let is_dir = path.is_dir();
+            let match_result = gitignore.matched(&path, is_dir);
+            info!("Testing gitignore match for {}: {:?}", test_path, match_result);
+        }
+            
+        Ok(gitignore)
+    }
+    
     /// Check if a directory entry should be excluded
-    fn should_exclude(&self, entry: &DirEntry) -> bool {
-        // Skip hidden files and directories
+    pub fn should_exclude(&self, entry: &DirEntry) -> bool {
+        let path = entry.path();
+        
+        // Apply pattern-based exclusions first
+        if self.exclusion_config.should_exclude(path) {
+            debug!("Excluding path based on exclusion patterns: {:?}", path);
+            return true;
+        }
+        
+        // Check if file matches gitignore patterns
+        if let Some(gitignore) = &self.gitignore {
+            let is_match = gitignore.matched(path, entry.file_type().is_dir());
+            if is_match.is_ignore() {
+                debug!("Excluding due to .gitignore match: {:?}", path);
+                return true;
+            }
+        }
+        
+        // Skip hidden files and directories (if not already excluded by gitignore or patterns)
         if entry.file_name()
             .to_str()
             .map(|s| s.starts_with('.'))
             .unwrap_or(false)
         {
-            info!("Excluding hidden file/directory: {:?}", entry.path());
+            debug!("Excluding hidden file/directory: {:?}", path);
             return true;
-        }
-        
-        // Check if this entry or any of its parent directories are in the exclude list
-        let path = entry.path();
-        for ancestor in path.ancestors() {
-            if let Some(dir_name) = ancestor.file_name() {
-                if let Some(dir_str) = dir_name.to_str() {
-                    if self.exclude_dirs.contains(&dir_str.to_string()) {
-                        info!("Excluding due to exclude_dirs match '{}': {:?}", dir_str, entry.path());
-                        return true;
-                    }
-                }
-            }
         }
         
         false

@@ -8,6 +8,7 @@ use crate::config::{RelevanceConfig, CodebaseConfig};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::{RelevanceDecision, RelevanceStatus};
 use crate::models::file::FilePatternSelection;
+use crate::models::exclusion::ExclusionConfig;
 use crate::utils::token_counter::count_tokens;
 use crate::utils::trajectory_store::TrajectoryStore;
 use crate::llm::client::{LLMClient, create_client};
@@ -197,10 +198,26 @@ pub async fn process_codebase(config: RelevanceConfig, codebase_config: &Codebas
     
     info!("Processing problem: {}", problem.id);
     
+    // Load exclusion config from file
+    info!("Loading exclusion config from: {}", codebase_config.exclusions_path);
+    let exclusion_config = match ExclusionConfig::from_file(&codebase_config.exclusions_path) {
+        Ok(config) => {
+            info!("Successfully loaded exclusion config with {} extensions, {} files, and {} directories to skip",
+                  config.extensions_to_skip.len(),
+                  config.files_to_skip.len(),
+                  config.directories_to_skip.len());
+            config
+        },
+        Err(e) => {
+            warn!("Failed to load exclusion config: {}, using default", e);
+            ExclusionConfig::default()
+        }
+    };
+    
     // Setup the problem with codebase configuration
     let mut configured_problem = problem
         .with_codebase_path(&codebase_config.path)
-        .with_exclude_dirs(codebase_config.exclude_dirs.clone());
+        .with_exclusion_config(exclusion_config);
     
     // Initialize the problem to scan the codebase
     configured_problem.initialize()

@@ -46,6 +46,6 @@
     "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",
     "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
-    "exclude_dirs": ["tests", "docs", "node_modules", "target", "build"]
+    "exclusions_path": "exclusions.json"
   }
 }

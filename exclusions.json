@@ -1,0 +1,24 @@
+{
+  "extensions_to_skip": [
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".ico", ".svg", ".webp", ".heic",
+    ".mp3", ".wav", ".wma", ".ogg", ".flac", ".m4a", ".aac", ".midi", ".mid",
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".m4v", ".3gp", ".3g2", ".rm", ".swf", ".flv", ".webm", ".mpg", ".mpeg",
+    ".otf", ".ttf",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf", ".odt", ".ods", ".odp",
+    ".iso", ".bin", ".tar", ".zip", ".7z", ".gz", ".rar", ".bz2", ".xz",
+    ".min.js", ".min.js.map", ".js.map", ".min.css", ".min.css.map",
+    ".tfstate", ".tfstate.backup", ".parquet", ".pyc", ".pub", ".pem", ".lock", ".sqlite", ".db", ".env", ".log",
+    ".class", ".dll", ".exe",
+    ".psd", ".ai", ".sketch",
+    ".stl", ".obj", ".dwg",
+    ".bak", ".old", ".tmp"
+  ],
+  "files_to_skip": [
+    "pnpm-lock.yaml", "package-lock.json", ".DS_Store", ".gitignore", "bun.lockb", 
+    "npm-debug.log", "yarn-error.log", "Thumbs.db", "Gemfile.lock"
+  ],
+  "directories_to_skip": [
+    ".git", "node_modules", ".vscode", ".idea", "assets", "dist", "build", 
+    "coverage", "tmp", "temp", ".next", ".nuxt", ".cache", "tests", "docs"
+  ]
+}

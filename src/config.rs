@@ -34,8 +34,13 @@ pub struct CodebaseConfig {
     /// Custom problem statement/prompt
     pub problem_statement: String,
     
-    /// Directories to exclude (e.g. ["tests", "docs"])
-    pub exclude_dirs: Vec<String>,
+    /// Path to the exclusions config file
+    #[serde(default = "default_exclusions_path")]
+    pub exclusions_path: String,
+}
+
+fn default_exclusions_path() -> String {
+    "exclusions.json".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +135,7 @@ impl Config {
                 path: PathBuf::from("."),
                 problem_id: "custom_problem".to_string(),
                 problem_statement: "Please analyze this codebase".to_string(),
-                exclude_dirs: vec!["tests".to_string(), "docs".to_string()],
+                exclusions_path: "exclusions.json".to_string(),
             },
             dockerfile: DockerfileConfig::default(),
         }

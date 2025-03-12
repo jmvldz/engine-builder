@@ -3,11 +3,12 @@ use log::{info, debug, warn};
 use regex::Regex;
 use serde_json;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::config::{RelevanceConfig, CodebaseConfig};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::file::FilePatternSelection;
+use crate::models::exclusion::ExclusionConfig;
 use crate::llm::client::create_client;
 use crate::llm::prompts::{get_codebase_tree_user_prompt};
 use crate::utils::trajectory_store::TrajectoryStore;
@@ -84,10 +85,26 @@ pub async fn run_file_selection(config: &RelevanceConfig, codebase_config: &Code
     let client = create_client(&config.llm).await
         .context("Failed to create LLM client")?;
     
+    // Load exclusion config from file
+    info!("Loading exclusion config from: {}", codebase_config.exclusions_path);
+    let exclusion_config = match ExclusionConfig::from_file(&codebase_config.exclusions_path) {
+        Ok(config) => {
+            info!("Successfully loaded exclusion config with {} extensions, {} files, and {} directories to skip",
+                  config.extensions_to_skip.len(),
+                  config.files_to_skip.len(),
+                  config.directories_to_skip.len());
+            config
+        },
+        Err(e) => {
+            warn!("Failed to load exclusion config: {}, using default", e);
+            ExclusionConfig::default()
+        }
+    };
+    
     // Initialize the problem to scan the codebase
     let mut configured_problem = problem.clone()
         .with_codebase_path(&codebase_config.path)
-        .with_exclude_dirs(codebase_config.exclude_dirs.clone());
+        .with_exclusion_config(exclusion_config);
     
     configured_problem.initialize()
         .context("Failed to initialize problem")?;

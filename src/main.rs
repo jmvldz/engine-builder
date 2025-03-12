@@ -3,6 +3,7 @@ use clap::Parser;
 use codemonkeys_rs::config::Config;
 use codemonkeys_rs::stages::{relevance, ranking, file_selection, dockerfile};
 use codemonkeys_rs::models::problem::SWEBenchProblem;
+use codemonkeys_rs::models::exclusion::ExclusionConfig;
 use log::info;
 use std::path::PathBuf;
 
@@ -47,9 +48,21 @@ fn create_problem(cli: &Cli, config: &Config) -> SWEBenchProblem {
     let problem_id = cli.problem_id.clone().unwrap_or_else(|| config.codebase.problem_id.clone());
     let problem_statement = cli.problem_statement.clone().unwrap_or_else(|| config.codebase.problem_statement.clone());
     
+    // Load exclusion config if available
+    let exclusion_config = match ExclusionConfig::from_file(&config.codebase.exclusions_path) {
+        Ok(loaded_config) => {
+            info!("Loaded exclusion config from: {}", &config.codebase.exclusions_path);
+            loaded_config
+        },
+        Err(e) => {
+            info!("Using default exclusion config: {}", e);
+            ExclusionConfig::default()
+        }
+    };
+    
     SWEBenchProblem::new(problem_id, problem_statement)
         .with_codebase_path(&config.codebase.path)
-        .with_exclude_dirs(config.codebase.exclude_dirs.clone())
+        .with_exclusion_config(exclusion_config)
 }
 
 #[tokio::main]
