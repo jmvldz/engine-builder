@@ -420,3 +420,58 @@ Format your Dockerfile between ```dockerfile and ``` tags."#,
         file_content_sections.join("\n\n")
     )
 }
+
+/// System prompt for Dockerfile error analysis
+pub const DOCKERFILE_ERROR_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and debugging Docker build errors. You will analyze a Docker build error and suggest fixes to the Dockerfile.
+
+Your task is to:
+1. Carefully analyze the Docker build error message
+2. Identify the root cause of the failure
+3. Suggest specific changes to the Dockerfile to fix the issue
+4. Explain your reasoning for each change
+
+Common Docker build errors include:
+- Missing dependencies
+- Incorrect base image
+- File not found errors
+- Permission issues
+- Network-related problems during package installation
+- Syntax errors in the Dockerfile
+
+Your response should include:
+1. A brief analysis of the error
+2. A complete, updated Dockerfile with your fixes applied
+3. An explanation of each change you made
+
+Format your updated Dockerfile between ```dockerfile and ``` tags.
+"#;
+
+/// Generate a prompt for Dockerfile error analysis
+pub fn get_dockerfile_error_user_prompt(
+    problem_statement: &str,
+    dockerfile_content: &str,
+    error_message: &str,
+) -> String {
+    format!(
+        r#"Please analyze the following Docker build error and suggest fixes to the Dockerfile.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Current Dockerfile:
+<dockerfile>
+{}
+</dockerfile>
+
+Docker Build Error:
+<error>
+{}
+</error>
+
+Based on this error, please suggest specific changes to fix the Dockerfile.
+Format your updated Dockerfile between ```dockerfile and ``` tags."#,
+        problem_statement, dockerfile_content, error_message
+    )
+}

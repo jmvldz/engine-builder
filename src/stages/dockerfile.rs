@@ -2,11 +2,13 @@ use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use regex::Regex;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 use crate::config::RankingConfig;
 use crate::llm::client::create_client;
-use crate::llm::prompts::{get_test_dockerfile_user_prompt, TEST_DOCKERFILE_SYSTEM_PROMPT};
+use crate::llm::prompts::{get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt, 
+                         DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT};
 use crate::models::problem::SWEBenchProblem;
 use crate::utils::trajectory_store::TrajectoryStore;
 
@@ -115,7 +117,7 @@ pub async fn generate_dockerfile(
 }
 
 /// Extract Dockerfile content from LLM response
-fn extract_dockerfile(response: &str) -> Result<String> {
+pub fn extract_dockerfile(response: &str) -> Result<String> {
     // Try to extract content between ```dockerfile and ``` tags
     let re = Regex::new(r"```dockerfile\s*([\s\S]*?)\s*```").unwrap();
     if let Some(captures) = re.captures(response) {
@@ -137,8 +139,58 @@ fn extract_dockerfile(response: &str) -> Result<String> {
     Ok(response.to_string())
 }
 
+/// Update a Dockerfile based on build errors using LLM suggestions
+pub async fn update_dockerfile_from_error(
+    config: &RankingConfig,
+    problem: &SWEBenchProblem,
+    dockerfile_path: &Path,
+    error_message: &str,
+) -> Result<String> {
+    info!("Updating Dockerfile based on build error");
+
+    // Read the current Dockerfile content
+    let dockerfile_content = fs::read_to_string(dockerfile_path)
+        .context(format!("Failed to read Dockerfile at {:?}", dockerfile_path))?;
+
+    // Create LLM client
+    let client = create_client(&config.llm)
+        .await
+        .context("Failed to create LLM client")?;
+
+    // Generate prompt for error analysis
+    let prompt = get_dockerfile_error_user_prompt(
+        &problem.problem_statement,
+        &dockerfile_content,
+        error_message,
+    );
+
+    // Create a combined prompt with system and user instructions
+    let combined_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        DOCKERFILE_ERROR_SYSTEM_PROMPT, prompt
+    );
+
+    info!("Asking LLM for Dockerfile fixes...");
+    let response = client
+        .completion(&combined_prompt, config.max_tokens, config.temperature)
+        .await
+        .context("Failed to get Dockerfile fix suggestions")?;
+
+    // Track usage
+    let usage = response.usage;
+    let cost = client.calculate_cost(&usage);
+    info!("Dockerfile error analysis LLM usage: {}", usage);
+    info!("Dockerfile error analysis LLM cost: {}", cost);
+
+    // Extract updated Dockerfile content
+    let updated_dockerfile = extract_dockerfile(&response.content)
+        .context("Failed to extract updated Dockerfile from LLM response")?;
+
+    Ok(updated_dockerfile)
+}
+
 /// Build a Docker image from the generated Dockerfile
-pub fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag: &str) -> Result<()> {
+pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag: &str, max_retries: usize) -> Result<()> {
     info!("Building Docker image with tag: {}", tag);
 
     // Create a trajectory store for this problem
@@ -164,26 +216,57 @@ pub fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag
         .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
     info!("Using repository as Docker context: {:?}", docker_context_dir);
 
-    // Run docker build command
-    info!("Running docker build...");
-    let output = Command::new("docker")
-        .arg("build")
-        .arg("-t")
-        .arg(tag)
-        .arg("-f")
-        .arg(&dockerfile_path)
-        .arg(docker_context_dir)
-        .output()
-        .context("Failed to execute docker build command")?;
+    // Try building the Docker image, with retries if it fails
+    let mut retry_count = 0;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("Docker build failed: {}", stderr));
+    loop {
+        // Run docker build command
+        info!("Running docker build (attempt {}/{})...", retry_count + 1, max_retries + 1);
+        let output = Command::new("docker")
+            .arg("build")
+            .arg("-t")
+            .arg(tag)
+            .arg("-f")
+            .arg(&dockerfile_path)
+            .arg(docker_context_dir)
+            .output()
+            .context("Failed to execute docker build command")?;
+
+        if output.status.success() {
+            info!("Docker build completed successfully");
+            info!("Image built with tag: {}", tag);
+            return Ok(());
+        }
+
+        // If build failed, get the error message
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        info!("Docker build failed with error: {}", stderr);
+
+        // Check if we've reached the maximum number of retries
+        if retry_count >= max_retries {
+            info!("Maximum retry attempts reached. Giving up.");
+            return Err(anyhow!("Docker build failed after {} attempts: {}", max_retries + 1, stderr));
+        }
+
+        // Update the Dockerfile using LLM suggestions
+        info!("Attempting to fix Dockerfile using LLM...");
+        let updated_dockerfile = update_dockerfile_from_error(config, problem, &dockerfile_path, &stderr).await?;
+
+        // Save the updated Dockerfile
+        let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
+        fs::copy(&dockerfile_path, &backup_path).context(format!(
+            "Failed to create backup of Dockerfile at {:?}",
+            backup_path
+        ))?;
+        info!("Created backup of original Dockerfile at {:?}", backup_path);
+
+        fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
+            "Failed to write updated Dockerfile to {:?}",
+            dockerfile_path
+        ))?;
+        info!("Updated Dockerfile with LLM suggestions");
+
+        // Increment retry counter
+        retry_count += 1;
     }
-
-    let _stdout = String::from_utf8_lossy(&output.stdout);
-    info!("Docker build completed successfully");
-    info!("Image built with tag: {}", tag);
-
-    Ok(())
 }
