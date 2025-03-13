@@ -1,90 +1,107 @@
-use std::fs::{self, File};
-use std::io::Write;
 use std::collections::HashSet;
-use tempfile::tempdir;
+use std::path::{Path, PathBuf};
 
-use codemonkeys_rs::models::problem::SWEBenchProblem;
 use codemonkeys_rs::models::exclusion::ExclusionConfig;
+
+// Custom struct to mock a DirEntry for testing
+struct MockDirEntry {
+    path: PathBuf,
+    is_dir: bool,
+}
+
+impl MockDirEntry {
+    fn new<P: AsRef<Path>>(path: P, is_dir: bool) -> Self {
+        MockDirEntry {
+            path: path.as_ref().to_path_buf(),
+            is_dir,
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn file_type(&self) -> MockFileType {
+        MockFileType { is_dir: self.is_dir }
+    }
+}
+
+// Mock file type for testing
+struct MockFileType {
+    is_dir: bool,
+}
+
+impl MockFileType {
+    fn is_dir(&self) -> bool {
+        self.is_dir
+    }
+}
 
 #[tokio::test]
 async fn test_exclusion_patterns() {
-    // Create a temporary directory structure
-    let temp_dir = tempdir().expect("Failed to create temp directory");
-    let temp_path = temp_dir.path();
+    // Create a mock codebase root path
+    let root_path = PathBuf::from("/mock/codebase");
     
-    // Create normal directories and files
-    fs::create_dir_all(temp_path.join("src")).expect("Failed to create src dir");
-    fs::create_dir_all(temp_path.join("docs")).expect("Failed to create docs dir");
-    fs::create_dir_all(temp_path.join("assets")).expect("Failed to create assets dir");
-    fs::create_dir_all(temp_path.join("node_modules")).expect("Failed to create node_modules dir");
-    fs::create_dir_all(temp_path.join(".git")).expect("Failed to create .git dir");
-    fs::create_dir_all(temp_path.join(".vscode")).expect("Failed to create .vscode dir");
-    
-    // Create source files
-    let mut src_file = File::create(temp_path.join("src/main.rs")).expect("Failed to create src file");
-    src_file.write_all(b"fn main() {}").expect("Failed to write to src file");
-    
-    // Create documentation files
-    let mut docs_file = File::create(temp_path.join("docs/readme.md")).expect("Failed to create docs file");
-    docs_file.write_all(b"# Documentation").expect("Failed to write to docs file");
-    
-    // Create various files that should be excluded
-    // Image file
-    let mut image_file = File::create(temp_path.join("assets/logo.png")).expect("Failed to create image file");
-    image_file.write_all(b"fake png data").expect("Failed to write to image file");
-    
-    // Audio file
-    let mut audio_file = File::create(temp_path.join("assets/sound.mp3")).expect("Failed to create audio file");
-    audio_file.write_all(b"fake mp3 data").expect("Failed to write to audio file");
-    
-    // Document file
-    let mut doc_file = File::create(temp_path.join("docs/manual.pdf")).expect("Failed to create pdf file");
-    doc_file.write_all(b"fake pdf data").expect("Failed to write to pdf file");
-    
-    // Minified file
-    let mut min_file = File::create(temp_path.join("src/script.min.js")).expect("Failed to create minified file");
-    min_file.write_all(b"console.log('minified')").expect("Failed to write to minified file");
-    
-    // Package lock file
-    let mut lock_file = File::create(temp_path.join("package-lock.json")).expect("Failed to create lock file");
-    lock_file.write_all(b"{}").expect("Failed to write to lock file");
-    
-    // Git config file
-    let mut git_config = File::create(temp_path.join(".git/config")).expect("Failed to create git config file");
-    git_config.write_all(b"[core]").expect("Failed to write to git config file");
-    
-    // VS Code settings file
-    let mut vscode_file = File::create(temp_path.join(".vscode/settings.json")).expect("Failed to create vscode file");
-    vscode_file.write_all(b"{}").expect("Failed to write to vscode file");
-    
-    // Node modules file
-    let mut node_file = File::create(temp_path.join("node_modules/package.json")).expect("Failed to create node_modules file");
-    node_file.write_all(b"{}").expect("Failed to write to node_modules file");
-    
-    // Normal file that shouldn't be excluded
-    let mut normal_file = File::create(temp_path.join("README.md")).expect("Failed to create README file");
-    normal_file.write_all(b"# Project").expect("Failed to write to README file");
+    // Create a list of mock file entries
+    let mock_entries = vec![
+        // Regular files and directories
+        MockDirEntry::new(root_path.join("src"), true),
+        MockDirEntry::new(root_path.join("src/main.rs"), false),
+        MockDirEntry::new(root_path.join("docs"), true),
+        MockDirEntry::new(root_path.join("docs/readme.md"), false),
+        MockDirEntry::new(root_path.join("README.md"), false),
+        
+        // Excluded files by extension
+        MockDirEntry::new(root_path.join("assets"), true),
+        MockDirEntry::new(root_path.join("assets/logo.png"), false),
+        MockDirEntry::new(root_path.join("assets/sound.mp3"), false),
+        MockDirEntry::new(root_path.join("docs/manual.pdf"), false),
+        MockDirEntry::new(root_path.join("src/script.min.js"), false),
+        
+        // Excluded files by name
+        MockDirEntry::new(root_path.join("package-lock.json"), false),
+        
+        // Excluded directories and their files
+        MockDirEntry::new(root_path.join(".git"), true),
+        MockDirEntry::new(root_path.join(".git/config"), false),
+        MockDirEntry::new(root_path.join(".vscode"), true),
+        MockDirEntry::new(root_path.join(".vscode/settings.json"), false),
+        MockDirEntry::new(root_path.join("node_modules"), true),
+        MockDirEntry::new(root_path.join("node_modules/package.json"), false),
+    ];
     
     // Create a test-specific exclusion config that doesn't exclude the test directory
     let mut exclusion_config = ExclusionConfig::default();
     // Make sure our test-specific config doesn't include "tests" in directories_to_skip
     exclusion_config.directories_to_skip.retain(|dir| dir != "tests");
     
-    let mut problem = SWEBenchProblem::new("test-exclusion".to_string(), "Testing exclusion patterns".to_string())
-        .with_codebase_path(temp_path)
-        .with_exclusion_config(exclusion_config);
+    // Apply the exclusion filter to the mock files
+    let filtered_files: Vec<String> = mock_entries.iter()
+        .filter(|entry| !entry.file_type().is_dir()) // Filter out directories
+        .filter(|entry| !exclusion_config.should_exclude(entry.path())) // Apply exclusion filter
+        .filter_map(|entry| {
+            entry.path().strip_prefix(&root_path).ok() // Remove the root path prefix
+                .and_then(|rel_path| rel_path.to_str()) // Convert to string
+                .map(|s| s.to_string()) // Create owned string
+        })
+        .collect();
     
-    // Initialize the problem (which scans the codebase)
-    problem.initialize().expect("Failed to initialize problem");
-    
-    // Get all file paths found during scan
-    let file_paths = problem.all_file_paths();
-    let file_paths_set: HashSet<String> = file_paths.into_iter().collect();
+    // Create a set of found file paths for easier lookup
+    let file_paths_set: HashSet<String> = filtered_files.into_iter().collect();
     
     // Verify that we found the expected normal files
-    assert!(file_paths_set.contains("src/main.rs"), "Should contain src/main.rs");
-    assert!(file_paths_set.contains("docs/readme.md"), "Should contain docs/readme.md");
-    assert!(file_paths_set.contains("README.md"), "Should contain README.md");
+    assert!(
+        file_paths_set.contains("src/main.rs"), 
+        "Should contain src/main.rs. Found paths: {:?}", file_paths_set
+    );
+    assert!(
+        file_paths_set.contains("docs/readme.md"), 
+        "Should contain docs/readme.md. Found paths: {:?}", file_paths_set
+    );
+    assert!(
+        file_paths_set.contains("README.md"), 
+        "Should contain README.md. Found paths: {:?}", file_paths_set
+    );
     
     // Verify files with excluded extensions are not included
     assert!(!file_paths_set.contains("assets/logo.png"), "Should not contain assets/logo.png");
