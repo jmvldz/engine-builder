@@ -158,10 +158,11 @@ pub fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag
 
     info!("Using Dockerfile at {:?}", dockerfile_path);
 
-    // Get the directory containing the Dockerfile
-    let docker_context_dir = dockerfile_path
-        .parent()
-        .ok_or_else(|| anyhow!("Could not determine docker context directory"))?;
+    // Use the repository directory as the Docker context 
+    // This makes files from the repository available during the build
+    let docker_context_dir = problem.get_codebase_path()
+        .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
+    info!("Using repository as Docker context: {:?}", docker_context_dir);
 
     // Run docker build command
     info!("Running docker build...");

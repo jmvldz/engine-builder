@@ -57,6 +57,11 @@ impl SWEBenchProblem {
             gitignore: None,
         }
     }
+    
+    /// Get the codebase path
+    pub fn get_codebase_path(&self) -> Option<&PathBuf> {
+        self.codebase_path.as_ref()
+    }
 
     /// Set the codebase path
     pub fn with_codebase_path<P: AsRef<Path>>(mut self, path: P) -> Self {
