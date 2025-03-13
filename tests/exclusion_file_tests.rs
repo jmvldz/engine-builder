@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use tempfile::tempdir;
 
-use codemonkeys_rs::models::exclusion::ExclusionConfig;
+use engine_builder::models::exclusion::ExclusionConfig;
 
 #[test]
 fn test_loading_exclusion_file() {

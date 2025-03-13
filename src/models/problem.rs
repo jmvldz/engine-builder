@@ -369,12 +369,10 @@ impl SWEBenchProblem {
                     if file.starts_with(dir) && file != dir {
                         let rel_path = if dir.is_empty() {
                             file.clone()
+                        } else if file.len() > dir.len() + 1 && file.as_bytes()[dir.len()] == b'/' {
+                            file[dir.len() + 1..].to_string()
                         } else {
-                            if file.len() > dir.len() + 1 && file.as_bytes()[dir.len()] == b'/' {
-                                file[dir.len() + 1..].to_string()
-                            } else {
-                                continue; // Not directly under this directory
-                            }
+                            continue; // Not directly under this directory
                         };
                         
                         if !rel_path.contains('/') {

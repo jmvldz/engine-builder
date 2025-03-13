@@ -1,10 +1,10 @@
-# CodeMonkeys-rs
+# engine-builder
 
-A Rust implementation of the file identification and ranking modules from the [CodeMonkeys](https://github.com/princeton-nlp/SWE-bench) project.
+A Rust implementation of the file identification and ranking modules from the [SWE-bench](https://github.com/princeton-nlp/SWE-bench) project.
 
 ## Overview
 
-CodeMonkeys-rs analyzes a codebase to identify and rank files that are relevant to a given problem statement. It operates in three stages:
+engine-builder analyzes a codebase to identify and rank files that are relevant to a given problem statement. It operates in three stages:
 
 1. **Relevance Assessment**: Evaluates each file in the codebase to determine if it's relevant to the problem.
 2. **File Ranking**: Ranks the relevant files to prioritize which files are most likely to need editing.
@@ -14,8 +14,8 @@ CodeMonkeys-rs analyzes a codebase to identify and rank files that are relevant 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/codemonkeys-rs.git
-cd codemonkeys-rs
+git clone https://github.com/yourusername/engine-builder.git
+cd engine-builder
 
 # Build the project
 cargo build --release
@@ -106,4 +106,4 @@ Results are stored in the trajectory store directory specified in the config:
 
 ## License
 
-This project is licensed under the same license as the original CodeMonkeys project.
+This project is licensed under the same license as the original SWE-bench project.

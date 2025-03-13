@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use codemonkeys_rs::models::exclusion::ExclusionConfig;
+use engine_builder::models::exclusion::ExclusionConfig;
 
 // Custom struct to mock a DirEntry for testing
 struct MockDirEntry {

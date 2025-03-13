@@ -1,6 +1,6 @@
-# Building and Running CodeMonkeys-rs
+# Building and Running engine-builder
 
-Here are step-by-step instructions for building, configuring, and running the CodeMonkeys-rs code:
+Here are step-by-step instructions for building, configuring, and running the engine-builder code:
 
 ## 1. Prerequisites
 
@@ -14,7 +14,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ```bash
 # Navigate to the project directory
-cd codemonkeys-rs
+cd engine-builder
 
 # Build the project
 cargo build --release

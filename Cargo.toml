@@ -1,5 +1,5 @@
 [package]
-name = "codemonkeys-rs"
+name = "engine-builder"
 version = "0.1.0"
 edition = "2021"
 

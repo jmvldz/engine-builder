@@ -4,8 +4,8 @@ use std::io::Write;
 use tempfile::tempdir;
 use walkdir::{DirEntry, WalkDir};
 
-use codemonkeys_rs::models::problem::SWEBenchProblem;
-use codemonkeys_rs::models::exclusion::ExclusionConfig;
+use engine_builder::models::problem::SWEBenchProblem;
+use engine_builder::models::exclusion::ExclusionConfig;
 
 fn create_dir_entry(path: &Path) -> DirEntry {
     // Use WalkDir to create a real DirEntry for the given path

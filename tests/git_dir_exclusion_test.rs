@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use codemonkeys_rs::models::exclusion::ExclusionConfig;
+use engine_builder::models::exclusion::ExclusionConfig;
 
 // Mock DirEntry and FileType for testing without accessing the file system
 struct MockDirEntry {

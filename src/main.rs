@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use codemonkeys_rs::config::Config;
-use codemonkeys_rs::stages::{relevance, ranking, file_selection, dockerfile};
-use codemonkeys_rs::models::problem::SWEBenchProblem;
-use codemonkeys_rs::models::exclusion::ExclusionConfig;
+use engine_builder::config::Config;
+use engine_builder::stages::{relevance, ranking, file_selection, dockerfile};
+use engine_builder::models::problem::SWEBenchProblem;
+use engine_builder::models::exclusion::ExclusionConfig;
 use log::info;
 use std::path::PathBuf;
 
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     // or RUST_LOG=debug for more detailed logs
     env_logger::init();
     
-    info!("Starting CodeMonkeys-rs. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
+    info!("Starting engine-builder. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
     
     let cli = Cli::parse();
     let mut config = Config::from_file(cli.config_path.as_deref())?;
