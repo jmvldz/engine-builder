@@ -169,7 +169,7 @@ async fn rank_problem_files(
     // Run multiple ranking requests in parallel
     let mut futures = futures::stream::iter(
         (0..config.num_rankings).map(|i| {
-            let client_ref = &*client;
+            let client_ref = client;
             let prompt_ref = &prompt;
             let progress_bar_ref = &progress_bar;
             
@@ -289,7 +289,6 @@ async fn rank_problem_files(
         model_rankings: rankings,
         ranked_files,
         prompt_caching_usages: prompt_caching_usages.into_iter()
-            .map(|map| map)
             .collect(),
     };
     

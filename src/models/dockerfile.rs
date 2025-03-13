@@ -28,6 +28,12 @@ pub struct DockerfileConfig {
     pub dockerfile_content: String,
 }
 
+impl Default for DockerfileConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DockerfileConfig {
     /// Create a new, empty Dockerfile configuration
     pub fn new() -> Self {

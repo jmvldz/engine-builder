@@ -297,7 +297,7 @@ impl SWEBenchProblem {
             let parent = path.rfind('/').map_or("", |i| &path[0..i]);
             info!("Adding file to tree: {} (parent directory: {})", path, parent);
             files_by_dir.entry(parent.to_string())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(path.clone());
         }
         
@@ -309,12 +309,12 @@ impl SWEBenchProblem {
             if let Some(last_slash) = dir.rfind('/') {
                 let parent = &dir[0..last_slash];
                 subdirs_by_dir.entry(parent.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(dir.clone());
             } else {
                 // Top-level directory, add to root
                 subdirs_by_dir.entry(String::new())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(dir.clone());
             }
         }

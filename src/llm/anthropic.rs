@@ -67,7 +67,7 @@ impl AnthropicClient {
         let mut headers = header::HeaderMap::new();
         
         // Add the API key header
-        let api_key = format!("{}", config.api_key);
+        let api_key = config.api_key.to_string();
         let api_key_header = header::HeaderValue::from_str(&api_key)
             .context("Failed to create x-api-key header")?;
         headers.insert("x-api-key", api_key_header);

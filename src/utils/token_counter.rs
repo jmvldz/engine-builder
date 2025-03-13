@@ -16,10 +16,8 @@ pub fn count_tokens(text: &str) -> usize {
                 count += 1;
                 prev_was_space = true;
             }
-        } else {
-            if prev_was_space {
-                prev_was_space = false;
-            }
+        } else if prev_was_space {
+            prev_was_space = false;
         }
     }
     
