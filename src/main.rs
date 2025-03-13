@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
-            dockerfile::build_docker_image(&config.ranking, &problem, &tag, config.dockerfile.max_retries).await?;
+            dockerfile::build_docker_image(&config.ranking, &problem, &tag)?;
         }
     }
 
