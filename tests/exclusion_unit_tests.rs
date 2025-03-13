@@ -5,6 +5,7 @@ use tempfile::tempdir;
 use walkdir::{DirEntry, WalkDir};
 
 use codemonkeys_rs::models::problem::SWEBenchProblem;
+use codemonkeys_rs::models::exclusion::ExclusionConfig;
 
 fn create_dir_entry(path: &Path) -> DirEntry {
     // Use WalkDir to create a real DirEntry for the given path
@@ -44,9 +45,15 @@ fn test_should_exclude_git_directory() {
     let mut src_file = File::create(&src_file_path).expect("Failed to create src file");
     src_file.write_all(b"fn main() {}").expect("Failed to write to src file");
     
-    // Create a problem instance
+    // Create a custom exclusion config that only excludes .git
+    let mut exclusion_config = ExclusionConfig::default();
+    // Keep only .git in directories_to_skip for this test
+    exclusion_config.directories_to_skip = vec![".git".to_string()];
+    
+    // Create a problem instance with our custom exclusion config
     let problem = SWEBenchProblem::new("test-problem".to_string(), "Test problem".to_string())
-        .with_codebase_path(temp_path);
+        .with_codebase_path(temp_path)
+        .with_exclusion_config(exclusion_config);
     
     // Test .git directory itself
     let git_dir_entry = create_dir_entry(&temp_path.join(".git"));
@@ -111,9 +118,15 @@ fn test_should_exclude_gitignore_patterns() {
     let mut readme_file = File::create(&readme_file_path).expect("Failed to create README file");
     readme_file.write_all(b"# Project").expect("Failed to write to README file");
     
+    // Create a custom exclusion config for testing gitignore
+    // Don't include src in directories_to_skip for this test
+    let mut exclusion_config = ExclusionConfig::default();
+    exclusion_config.directories_to_skip.retain(|dir| dir != "src");
+    
     // Create a problem instance and initialize it to load the .gitignore
     let mut problem = SWEBenchProblem::new("test-gitignore".to_string(), "Test gitignore".to_string())
-        .with_codebase_path(temp_path);
+        .with_codebase_path(temp_path)
+        .with_exclusion_config(exclusion_config);
     
     println!("Before initialization, checking if .gitignore exists: {}", temp_path.join(".gitignore").exists());
     
