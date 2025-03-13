@@ -1,8 +1,8 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -19,7 +19,7 @@ pub struct LLMConfig {
     pub model: String,
     pub api_key: String,
     pub base_url: Option<String>,
-    pub timeout: u64,  // in seconds
+    pub timeout: u64, // in seconds
     pub max_retries: u32,
 }
 
@@ -27,13 +27,13 @@ pub struct LLMConfig {
 pub struct CodebaseConfig {
     /// Path to the codebase root directory
     pub path: PathBuf,
-    
+
     /// ID for the problem (used for trajectory storage)
     pub problem_id: String,
-    
+
     /// Custom problem statement/prompt
     pub problem_statement: String,
-    
+
     /// Path to the exclusions config file
     #[serde(default = "default_exclusions_path")]
     pub exclusions_path: String,
@@ -98,7 +98,7 @@ impl Config {
         let config = serde_json::from_reader(reader).context("Failed to parse config file")?;
         Ok(config)
     }
-    
+
     pub fn default() -> Self {
         Self {
             relevance: RelevanceConfig {

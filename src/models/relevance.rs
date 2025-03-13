@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 pub enum RelevanceStatus {
     /// The file is relevant to the problem
     Relevant,
-    
+
     /// The file is not relevant to the problem
     NotRelevant,
-    
+
     /// There was an error parsing the LLM response
     ParseError,
 }
@@ -18,10 +18,10 @@ pub enum RelevanceStatus {
 pub struct RelevanceDecision {
     /// The full message from the LLM
     pub message: String,
-    
+
     /// The status of the decision
     pub status: RelevanceStatus,
-    
+
     /// A summary of why the file is relevant (only if status is Relevant)
     pub summary: Option<String>,
 }
@@ -35,7 +35,7 @@ impl RelevanceDecision {
             summary: Some(summary),
         }
     }
-    
+
     /// Create a new relevance decision for an irrelevant file
     pub fn not_relevant(message: String) -> Self {
         Self {
@@ -44,7 +44,7 @@ impl RelevanceDecision {
             summary: None,
         }
     }
-    
+
     /// Create a new relevance decision for a parsing error
     pub fn parse_error(message: String) -> Self {
         Self {
@@ -53,7 +53,7 @@ impl RelevanceDecision {
             summary: None,
         }
     }
-    
+
     /// Check if the file is relevant
     pub fn is_relevant(&self) -> bool {
         self.status == RelevanceStatus::Relevant

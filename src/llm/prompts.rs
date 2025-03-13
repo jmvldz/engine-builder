@@ -1,5 +1,5 @@
 use crate::models::problem::SWEBenchProblem;
-use crate::models::ranking::{RelevantFileDataForPrompt, RankedCodebaseFile};
+use crate::models::ranking::{RankedCodebaseFile, RelevantFileDataForPrompt};
 
 /// System prompt for codebase tree analysis to determine which files to assess
 pub const CODEBASE_TREE_SYSTEM_PROMPT: &str = r#"You are going to analyze a directory structure of a codebase to decide which files and directories are worth processing to solve a GitHub issue.
@@ -91,8 +91,13 @@ Some notes:
 "#;
 
 /// Generate a user prompt for relevance assessment
-pub fn get_relevance_user_prompt(problem: &SWEBenchProblem, file_path: &str, file_content: &str) -> String {
-    format!(r#"
+pub fn get_relevance_user_prompt(
+    problem: &SWEBenchProblem,
+    file_path: &str,
+    file_content: &str,
+) -> String {
+    format!(
+        r#"
 Please analyze the relevance of the following file to the given GitHub issue. Determine if it's relevant for understanding or solving the issue.
 Provide your analysis in the specified format.
 
@@ -116,7 +121,9 @@ Remember:
 4. Provide a brief but informative summary for relevant files. This summary will be used to rank and prioritize files for inclusion in the next stage of analysis, so focus on why this file is important for addressing the GitHub issue.
 5. Follow the output format exactly as specified in the system prompt.
 6. Include your thoughts on the relevance before making your final decision.
-"#, problem.problem_statement, file_path, file_content)
+"#,
+        problem.problem_statement, file_path, file_content
+    )
 }
 
 /// The ranking prompt used to rank relevant files
@@ -181,7 +188,8 @@ IMPORTANT: Your ranking should be the FINAL thing you output. You MUST deliberat
 
 /// Generate a user prompt for codebase tree analysis
 pub fn get_codebase_tree_user_prompt(problem: &SWEBenchProblem, tree_output: &str) -> String {
-    format!(r#"
+    format!(
+        r#"
 Please analyze the following codebase structure to determine which files and directories should be processed to solve the given GitHub issue.
 
 GitHub Issue Description:
@@ -200,7 +208,9 @@ Remember to include exact file paths, directory paths, or glob patterns that are
 IMPORTANT: Do NOT include "./" prefix in any file paths. Paths should be relative to the root (e.g., "src/main.rs", not "./src/main.rs").
 
 Output your decision as a JSON array of strings as specified in the system prompt.
-"#, problem.problem_statement, tree_output)
+"#,
+        problem.problem_statement, tree_output
+    )
 }
 
 /// Generate a ranking prompt for file ranking
@@ -214,16 +224,16 @@ pub fn get_ranking_user_prompt(
     let formatted_prompt = RANKING_PROMPT
         .replace("{max_tokens}", &max_tokens.to_string())
         .replace("{target_tokens}", &target_tokens.to_string());
-    
+
     let mut file_summaries = Vec::new();
-    
+
     for file in relevance_info {
         file_summaries.push(format!(
             "File: {}\nTokens: {}\nSummary: {}",
             file.path, file.token_count, file.summary
         ));
     }
-    
+
     format!(
         r#"{}
     
@@ -238,7 +248,9 @@ File Summaries:
 {}
 
 Please provide your ranking and explanation as specified in the system prompt."#,
-        formatted_prompt, issue_description, file_summaries.join("\n")
+        formatted_prompt,
+        issue_description,
+        file_summaries.join("\n")
     )
 }
 
@@ -277,6 +289,41 @@ Your output should include:
 The Dockerfile should be properly formatted and follow Docker best practices.
 "#;
 
+/// System prompt for test-focused Dockerfile generation
+pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile specifically optimized for RUNNING TESTS in a project based on the context from provided code files. You will need to determine:
+
+1. The appropriate base image for testing
+2. Required dependencies including test frameworks
+3. Build and test preparation steps
+4. Files to copy
+5. Environment variables needed for testing
+6. Test configuration
+7. Command to run the tests
+
+The test Dockerfile should follow best practices:
+- Use specific image tags instead of 'latest'
+- Leverage layer caching properly for faster test runs
+- Clean up unnecessary build artifacts
+- Include testing frameworks and dependencies
+- Set up the environment for running tests efficiently
+- Be optimized for test execution
+
+Analyze the code files to understand:
+- The programming language and runtime requirements
+- Package managers used
+- Test frameworks and tools used
+- How tests are organized and run
+- Dependencies needed for testing
+- Configuration needed for tests
+
+Your output should include:
+1. A detailed explanation of your reasoning about the test setup
+2. A complete, ready-to-use Dockerfile optimized for running tests with explanatory comments
+3. A summary of key choices regarding test configuration
+
+The Dockerfile should be properly formatted and follow Docker best practices while being optimized for testing.
+"#;
+
 /// Generate a dockerfile generation prompt
 pub fn get_dockerfile_user_prompt(
     problem_statement: &str,
@@ -284,14 +331,14 @@ pub fn get_dockerfile_user_prompt(
     file_contents: &[(String, String)], // (path, content) pairs
 ) -> String {
     let mut file_content_sections = Vec::new();
-    
+
     for (path, content) in file_contents {
         file_content_sections.push(format!(
             "File: {}\n<content>\n{}\n</content>",
             path, content
         ));
     }
-    
+
     format!(
         r#"Please create a Dockerfile for the following project based on the ranked files and their contents.
 
@@ -316,7 +363,60 @@ Your response should include:
 
 Format your Dockerfile between ```dockerfile and ``` tags."#,
         problem_statement,
-        ranked_files.iter().map(|f| f.path.clone()).collect::<Vec<_>>().join("\n"),
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        file_content_sections.join("\n\n")
+    )
+}
+
+/// Generate a test-focused dockerfile generation prompt
+pub fn get_test_dockerfile_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+
+    format!(
+        r#"Please create a Dockerfile specifically optimized for RUNNING TESTS for the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a comprehensive Dockerfile that will properly set up the environment for running tests in this codebase.
+Pay special attention to test frameworks, test dependencies, and how tests are organized and run.
+Ensure the Dockerfile follows best practices and addresses all the testing requirements implied by the code.
+
+Your response should include:
+1. Your analysis of the test infrastructure, framework, and requirements
+2. A complete, ready-to-use Dockerfile optimized for running tests with explanatory comments
+3. A brief summary of key decisions made (base image choice, test frameworks, test commands, etc.)
+
+Format your Dockerfile between ```dockerfile and ``` tags."#,
+        problem_statement,
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
         file_content_sections.join("\n\n")
     )
 }
