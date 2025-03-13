@@ -2,8 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use regex::Regex;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::config::RankingConfig;
 use crate::llm::client::create_client;
@@ -220,37 +221,76 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
     let mut retry_count = 0;
 
     loop {
-        // Run docker build command
+        // Run docker build command with streaming output
+        println!("\n=== Docker Build (Attempt {}/{}) ===", retry_count + 1, max_retries + 1);
         info!("Running docker build (attempt {}/{})...", retry_count + 1, max_retries + 1);
-        let output = Command::new("docker")
+        
+        let mut child = Command::new("docker")
             .arg("build")
             .arg("-t")
             .arg(tag)
             .arg("-f")
             .arg(&dockerfile_path)
             .arg(docker_context_dir)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .context("Failed to execute docker build command")?;
-
-        if output.status.success() {
+        
+        // Stream stdout in real-time
+        let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let stdout_reader = BufReader::new(stdout);
+        let stderr = child.stderr.take().expect("Failed to capture stderr");
+        let stderr_reader = BufReader::new(stderr);
+        
+        // Collect stderr for potential error analysis
+        let mut error_output = String::new();
+        
+        // Create a thread to read and display stdout
+        let stdout_handle = std::thread::spawn(move || {
+            for line in stdout_reader.lines() {
+                if let Ok(line) = line {
+                    println!("🐳 [stdout] {}", line);
+                }
+            }
+        });
+        
+        // Read and display stderr, also collecting it for error analysis if needed
+        for line in stderr_reader.lines() {
+            if let Ok(line) = line {
+                println!("🐳 [stderr] {}", line);
+                error_output.push_str(&line);
+                error_output.push('\n');
+            }
+        }
+        
+        // Wait for stdout thread to complete
+        stdout_handle.join().expect("Failed to join stdout thread");
+        
+        // Wait for the command to complete and get the exit status
+        let status = child.wait().context("Failed to wait for docker build command")?;
+        
+        if status.success() {
+            println!("\n✅ Docker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
             return Ok(());
         }
-
-        // If build failed, get the error message
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        info!("Docker build failed with error: {}", stderr);
-
+        
+        println!("\n❌ Docker build failed!");
+        info!("Docker build failed with error");
+        
         // Check if we've reached the maximum number of retries
         if retry_count >= max_retries {
+            println!("Maximum retry attempts ({}) reached. Giving up.", max_retries);
             info!("Maximum retry attempts reached. Giving up.");
-            return Err(anyhow!("Docker build failed after {} attempts: {}", max_retries + 1, stderr));
+            return Err(anyhow!("Docker build failed after {} attempts", max_retries + 1));
         }
 
         // Update the Dockerfile using LLM suggestions
+        println!("\n🤖 Analyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
-        let updated_dockerfile = update_dockerfile_from_error(config, problem, &dockerfile_path, &stderr).await?;
+        let updated_dockerfile = update_dockerfile_from_error(config, problem, &dockerfile_path, &error_output).await?;
 
         // Save the updated Dockerfile
         let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
@@ -258,12 +298,14 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
             "Failed to create backup of Dockerfile at {:?}",
             backup_path
         ))?;
+        println!("📄 Created backup of original Dockerfile at {:?}", backup_path);
         info!("Created backup of original Dockerfile at {:?}", backup_path);
 
         fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
             "Failed to write updated Dockerfile to {:?}",
             dockerfile_path
         ))?;
+        println!("📄 Updated Dockerfile with LLM suggestions");
         info!("Updated Dockerfile with LLM suggestions");
 
         // Increment retry counter
