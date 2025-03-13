@@ -70,6 +70,7 @@ pub struct DockerfileConfig {
     pub max_tokens: usize,
     pub temperature: f64,
     pub output_path: String,
+    pub max_retries: usize,
 }
 
 impl Default for DockerfileConfig {
@@ -86,6 +87,7 @@ impl Default for DockerfileConfig {
             max_tokens: 4096,
             temperature: 0.0,
             output_path: "Dockerfile".to_string(),
+            max_retries: 3,
         }
     }
 }
