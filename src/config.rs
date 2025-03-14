@@ -11,6 +11,8 @@ pub struct Config {
     pub codebase: CodebaseConfig,
     #[serde(default)]
     pub dockerfile: DockerfileConfig,
+    #[serde(default)]
+    pub scripts: ScriptConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +94,33 @@ impl Default for DockerfileConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScriptConfig {
+    pub llm: LLMConfig,
+    pub max_tokens: usize,
+    pub temperature: f64,
+    pub max_retries: usize,
+}
+
+impl Default for ScriptConfig {
+    fn default() -> Self {
+        Self {
+            llm: LLMConfig {
+                model_type: "anthropic".to_string(),
+                model: "claude-3-opus-20240229".to_string(),
+                api_key: "".to_string(),
+                base_url: None,
+                timeout: 60,
+                max_retries: 3,
+            },
+            max_tokens: 4096,
+            temperature: 0.0,
+            max_retries: 3,
+        }
+    }
+}
+
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
         let path = path.unwrap_or("config.json");
@@ -140,6 +169,7 @@ impl Config {
                 exclusions_path: "exclusions.json".to_string(),
             },
             dockerfile: DockerfileConfig::default(),
+            scripts: ScriptConfig::default(),
         }
     }
 }

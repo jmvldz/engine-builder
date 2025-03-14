@@ -47,6 +47,8 @@ enum Command {
         #[arg(short, long, default_value = "engine-builder-test")]
         tag: String,
     },
+    /// Generate lint and test scripts based on relevant files
+    GenerateScripts,
 }
 
 /// Create a problem from the CLI args and config
@@ -134,6 +136,10 @@ async fn main() -> Result<()> {
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
             dockerfile::build_docker_image_from_relevance(&config.relevance, &problem, &tag, config.dockerfile.max_retries).await?;
+        }
+        Command::GenerateScripts => {
+            info!("Generating lint and test scripts based on relevance data");
+            engine_builder::stages::scripts::generate_scripts(config.relevance.clone(), config.scripts, problem.clone()).await?;
         }
     }
 

@@ -476,3 +476,145 @@ Format your updated Dockerfile between ```dockerfile and ``` tags."#,
         problem_statement, dockerfile_content, error_message
     )
 }
+
+/// System prompt for lint script generation
+pub const LINT_SCRIPT_SYSTEM_PROMPT: &str = r#"You are an expert in creating shell scripts for running linters in software projects. You will create a lint script based on the context from provided code files. You will need to determine:
+
+1. The appropriate linting tools for the project
+2. The correct linting commands
+3. Any configuration options needed
+4. How to handle errors and return appropriate exit codes
+
+The script should follow best practices:
+- Include proper shebang line
+- Set appropriate error handling (e.g., set -e)
+- Include helpful comments
+- Be executable and standalone
+
+Analyze the code files to understand:
+- The programming language and framework used
+- The existing linting tools and configuration
+- Any custom linting rules or settings
+
+Your output should be a complete, ready-to-use shell script that can be run to lint the codebase.
+The script should be properly formatted and follow shell scripting best practices.
+"#;
+
+/// System prompt for test script generation
+pub const TEST_SCRIPT_SYSTEM_PROMPT: &str = r#"You are an expert in creating shell scripts for running tests in software projects. You will create a test script based on the context from provided code files. You will need to determine:
+
+1. The appropriate testing framework for the project
+2. The correct test commands
+3. Any configuration options needed
+4. How to handle errors and return appropriate exit codes
+
+The script should follow best practices:
+- Include proper shebang line
+- Set appropriate error handling (e.g., set -e)
+- Include helpful comments
+- Be executable and standalone
+
+Analyze the code files to understand:
+- The programming language and framework used
+- The existing testing framework and configuration
+- Any test organization or patterns
+
+Your output should be a complete, ready-to-use shell script that can be run to test the codebase.
+The script should be properly formatted and follow shell scripting best practices.
+"#;
+
+/// Generate a lint script generation prompt
+pub fn get_lint_script_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+
+    format!(
+        r#"Please create a shell script for running linters on the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a comprehensive shell script that will properly lint this codebase.
+The script should be named `lint-script.sh` and should be executable.
+
+Your response should include:
+1. Your analysis of the project type, language, and linting requirements
+2. A complete, ready-to-use shell script with explanatory comments
+3. A brief summary of key decisions made (linting tools, commands, etc.)
+
+Format your shell script between ```sh and ``` tags."#,
+        problem_statement,
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        file_content_sections.join("\n\n")
+    )
+}
+
+/// Generate a test script generation prompt
+pub fn get_test_script_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+
+    format!(
+        r#"Please create a shell script for running tests on the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a comprehensive shell script that will properly test this codebase.
+The script should be named `test-script.sh` and should be executable.
+
+Your response should include:
+1. Your analysis of the project type, language, and testing requirements
+2. A complete, ready-to-use shell script with explanatory comments
+3. A brief summary of key decisions made (testing framework, commands, etc.)
+
+Format your shell script between ```sh and ``` tags."#,
+        problem_statement,
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        file_content_sections.join("\n\n")
+    )
+}
