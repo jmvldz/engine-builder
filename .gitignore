@@ -4,3 +4,4 @@ data/
 target/
 **/*.rs.bk
 *.pdb
+.env

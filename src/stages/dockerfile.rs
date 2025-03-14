@@ -372,7 +372,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         let stdout_handle = std::thread::spawn(move || {
             for line in stdout_reader.lines() {
                 if let Ok(line) = line {
-                    println!("🐳 [stdout] {}", line);
+                    println!("[stdout] {}", line);
                 }
             }
         });
@@ -380,7 +380,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         // Read and display stderr, also collecting it for error analysis if needed
         for line in stderr_reader.lines() {
             if let Ok(line) = line {
-                println!("🐳 [stderr] {}", line);
+                println!("[stderr] {}", line);
                 error_output.push_str(&line);
                 error_output.push('\n');
             }
@@ -393,13 +393,13 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         let status = child.wait().context("Failed to wait for docker build command")?;
         
         if status.success() {
-            println!("\n✅ Docker build completed successfully!");
+            println!("\nDocker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
             return Ok(());
         }
         
-        println!("\n❌ Docker build failed!");
+        println!("\nDocker build failed!");
         info!("Docker build failed with error");
         
         // Check if we've reached the maximum number of retries
@@ -420,7 +420,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         };
 
         // Update the Dockerfile using LLM suggestions
-        println!("\n🤖 Analyzing build error and updating Dockerfile...");
+        println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
         let updated_dockerfile = update_dockerfile_from_error(&ranking_config, problem, &dockerfile_path, &error_output).await?;
 
@@ -430,14 +430,14 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
             "Failed to create backup of Dockerfile at {:?}",
             backup_path
         ))?;
-        println!("📄 Created backup of original Dockerfile at {:?}", backup_path);
+        println!("Created backup of original Dockerfile at {:?}", backup_path);
         info!("Created backup of original Dockerfile at {:?}", backup_path);
 
         fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
             "Failed to write updated Dockerfile to {:?}",
             dockerfile_path
         ))?;
-        println!("📄 Updated Dockerfile with LLM suggestions");
+        println!("Updated Dockerfile with LLM suggestions");
         info!("Updated Dockerfile with LLM suggestions");
 
         // Increment retry counter
@@ -504,7 +504,7 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
         let stdout_handle = std::thread::spawn(move || {
             for line in stdout_reader.lines() {
                 if let Ok(line) = line {
-                    println!("🐳 [stdout] {}", line);
+                    println!("[stdout] {}", line);
                 }
             }
         });
@@ -512,7 +512,7 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
         // Read and display stderr, also collecting it for error analysis if needed
         for line in stderr_reader.lines() {
             if let Ok(line) = line {
-                println!("🐳 [stderr] {}", line);
+                println!("[stderr] {}", line);
                 error_output.push_str(&line);
                 error_output.push('\n');
             }
@@ -525,13 +525,13 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
         let status = child.wait().context("Failed to wait for docker build command")?;
         
         if status.success() {
-            println!("\n✅ Docker build completed successfully!");
+            println!("\nDocker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
             return Ok(());
         }
         
-        println!("\n❌ Docker build failed!");
+        println!("\nDocker build failed!");
         info!("Docker build failed with error");
         
         // Check if we've reached the maximum number of retries
@@ -542,7 +542,7 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
         }
 
         // Update the Dockerfile using LLM suggestions
-        println!("\n🤖 Analyzing build error and updating Dockerfile...");
+        println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
         let updated_dockerfile = update_dockerfile_from_error(config, problem, &dockerfile_path, &error_output).await?;
 
@@ -552,14 +552,14 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
             "Failed to create backup of Dockerfile at {:?}",
             backup_path
         ))?;
-        println!("📄 Created backup of original Dockerfile at {:?}", backup_path);
+        println!("Created backup of original Dockerfile at {:?}", backup_path);
         info!("Created backup of original Dockerfile at {:?}", backup_path);
 
         fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
             "Failed to write updated Dockerfile to {:?}",
             dockerfile_path
         ))?;
-        println!("📄 Updated Dockerfile with LLM suggestions");
+        println!("Updated Dockerfile with LLM suggestions");
         info!("Updated Dockerfile with LLM suggestions");
 
         // Increment retry counter
