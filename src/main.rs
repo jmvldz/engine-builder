@@ -35,11 +35,11 @@ enum Command {
     Relevance,
     /// Run file ranking
     Ranking,
-    /// Run full pipeline (relevance, ranking, and dockerfile generation)
+    /// Run full pipeline (relevance and dockerfile generation)
     Pipeline,
     /// Run only the file selection step
     FileSelection,
-    /// Generate a test-focused Dockerfile for running tests based on the ranked files
+    /// Generate a test-focused Dockerfile for running tests based on relevant files
     Dockerfile,
     /// Build a Docker image from the generated Dockerfile
     BuildImage {
@@ -113,11 +113,10 @@ async fn main() -> Result<()> {
         }
         Command::Pipeline => {
             info!("Running full pipeline");
-            relevance::process_codebase(config.relevance, &config.codebase, problem.clone())
+            relevance::process_codebase(config.relevance.clone(), &config.codebase, problem.clone())
                 .await?;
-            ranking::process_rankings(config.ranking.clone(), problem.clone()).await?;
-            info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.ranking, problem.clone()).await?;
+            info!("Generating test-focused Dockerfile based on relevance data");
+            dockerfile::generate_dockerfile_from_relevance(config.relevance, problem.clone()).await?;
         }
         Command::FileSelection => {
             info!("Running file selection process");
@@ -129,12 +128,12 @@ async fn main() -> Result<()> {
             .await?;
         }
         Command::Dockerfile => {
-            info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.ranking, problem.clone()).await?;
+            info!("Generating test-focused Dockerfile based on relevance data");
+            dockerfile::generate_dockerfile_from_relevance(config.relevance.clone(), problem.clone()).await?;
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
-            dockerfile::build_docker_image(&config.ranking, &problem, &tag, config.dockerfile.max_retries).await?;
+            dockerfile::build_docker_image_from_relevance(&config.relevance, &problem, &tag, config.dockerfile.max_retries).await?;
         }
     }
 

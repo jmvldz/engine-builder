@@ -6,11 +6,12 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::config::RankingConfig;
+use crate::config::{RankingConfig, RelevanceConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt, 
                          DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT};
 use crate::models::problem::SWEBenchProblem;
+use crate::models::relevance::RelevanceStatus;
 use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate a test-focused Dockerfile based on ranked files
@@ -191,11 +192,264 @@ pub async fn update_dockerfile_from_error(
 }
 
 /// Build a Docker image from the generated Dockerfile
+/// Generate a test-focused Dockerfile based on relevance data
+pub async fn generate_dockerfile_from_relevance(
+    config: RelevanceConfig,
+    mut problem: SWEBenchProblem,
+) -> Result<()> {
+    info!("Starting test-focused Dockerfile generation from relevance data");
+
+    // Create a trajectory store for this problem
+    let trajectory_store =
+        TrajectoryStore::new(&config.trajectory_store_dir, &problem).context(format!(
+            "Failed to create trajectory store for problem: {}",
+            problem.id
+        ))?;
+
+    // Check if relevance decisions exist in the consolidated file
+    let relevance_decisions_path = trajectory_store.relevance_decisions_path();
+    if !relevance_decisions_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No relevance decisions found for problem: {}. Run the relevance step first.",
+            problem.id
+        ));
+    }
+
+    // Load all relevance decisions and find relevant files
+    let all_decisions = trajectory_store.load_all_relevance_decisions().context(format!(
+        "Failed to load relevance decisions for problem: {}",
+        problem.id
+    ))?;
+
+    // Get relevant files
+    let relevant_files = all_decisions
+        .into_iter()
+        .filter(|(_, decision)| decision.status == RelevanceStatus::Relevant)
+        .map(|(path, decision)| (path, decision.summary.unwrap_or_default()))
+        .collect::<Vec<_>>();
+
+    if relevant_files.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No relevant files found for problem: {}",
+            problem.id
+        ));
+    }
+
+    info!("Found {} relevant files", relevant_files.len());
+
+    // Limit to top N files to avoid context overflow
+    let max_files = 10;
+    let relevant_files = relevant_files
+        .into_iter()
+        .take(max_files)
+        .collect::<Vec<_>>();
+
+    // Load file contents
+    let mut file_contents = Vec::new();
+
+    for (file_path, _) in &relevant_files {
+        match problem.get_file(file_path) {
+            Ok(file_data) => {
+                file_contents.push((file_path.clone(), file_data.content.clone()));
+            }
+            Err(e) => {
+                warn!("Failed to read file {}: {}", file_path, e);
+            }
+        }
+    }
+
+    // Create LLM client
+    let client = create_client(&config.llm)
+        .await
+        .context("Failed to create LLM client")?;
+
+    // Generate test-focused prompt
+    // Convert relevant_files to a format similar to ranked_files
+    let formatted_files = relevant_files
+        .iter()
+        .map(|(path, _summary)| {
+            crate::models::ranking::RankedCodebaseFile {
+                path: path.clone(),
+                tokens: 0, // Using a placeholder value since we don't need token counts here
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let prompt =
+        get_test_dockerfile_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+
+    // Generate test-focused Dockerfile
+    info!("Generating test-focused Dockerfile...");
+    // Create a combined prompt with system and user instructions
+    let combined_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        TEST_DOCKERFILE_SYSTEM_PROMPT, prompt
+    );
+
+    let response = client
+        .completion(&combined_prompt, config.max_tokens, 0.0)
+        .await
+        .context("Failed to generate test-focused Dockerfile")?;
+
+    // Track usage
+    let usage = response.usage;
+    let cost = client.calculate_cost(&usage);
+    info!("Test Dockerfile generation LLM usage: {}", usage);
+    info!("Test Dockerfile generation LLM cost: {}", cost);
+
+    // Extract Dockerfile content
+    let dockerfile_content = extract_dockerfile(&response.content)
+        .context("Failed to extract Dockerfile content from LLM response")?;
+
+    // Save to the trajectory store directory
+    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
+    fs::write(&dockerfile_path, &dockerfile_content).context(format!(
+        "Failed to write test-focused Dockerfile to {:?}",
+        dockerfile_path
+    ))?;
+
+    info!("Test-focused Dockerfile saved to {:?}", dockerfile_path);
+
+    Ok(())
+}
+
+pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem: &SWEBenchProblem, tag: &str, max_retries: usize) -> Result<()> {
+    info!("Building Docker image with tag: {}", tag);
+
+    // Create a trajectory store for this problem
+    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
+
+    // Check if Dockerfile exists
+    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
+    if !dockerfile_path.exists() {
+        return Err(anyhow!(
+            "Dockerfile not found at {:?}. Generate it first with the 'dockerfile' command.",
+            dockerfile_path
+        ));
+    }
+    
+    info!("Using Dockerfile at {:?}", dockerfile_path);
+
+    // Use the repository directory as the Docker context 
+    // This makes files from the repository available during the build
+    let docker_context_dir = problem.get_codebase_path()
+        .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
+    info!("Using repository as Docker context: {:?}", docker_context_dir);
+
+    // Try building the Docker image, with retries if it fails
+    let mut retry_count = 0;
+
+    loop {
+        // Run docker build command with streaming output
+        println!("\n=== Docker Build (Attempt {}/{}) ===", retry_count + 1, max_retries + 1);
+        info!("Running docker build (attempt {}/{})...", retry_count + 1, max_retries + 1);
+        
+        let mut child = Command::new("docker")
+            .arg("build")
+            .arg("-t")
+            .arg(tag)
+            .arg("-f")
+            .arg(&dockerfile_path)
+            .arg(docker_context_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to execute docker build command")?;
+        
+        // Stream stdout in real-time
+        let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let stdout_reader = BufReader::new(stdout);
+        let stderr = child.stderr.take().expect("Failed to capture stderr");
+        let stderr_reader = BufReader::new(stderr);
+        
+        // Collect stderr for potential error analysis
+        let mut error_output = String::new();
+        
+        // Create a thread to read and display stdout
+        let stdout_handle = std::thread::spawn(move || {
+            for line in stdout_reader.lines() {
+                if let Ok(line) = line {
+                    println!("🐳 [stdout] {}", line);
+                }
+            }
+        });
+        
+        // Read and display stderr, also collecting it for error analysis if needed
+        for line in stderr_reader.lines() {
+            if let Ok(line) = line {
+                println!("🐳 [stderr] {}", line);
+                error_output.push_str(&line);
+                error_output.push('\n');
+            }
+        }
+        
+        // Wait for stdout thread to complete
+        stdout_handle.join().expect("Failed to join stdout thread");
+        
+        // Wait for the command to complete and get the exit status
+        let status = child.wait().context("Failed to wait for docker build command")?;
+        
+        if status.success() {
+            println!("\n✅ Docker build completed successfully!");
+            info!("Docker build completed successfully");
+            info!("Image built with tag: {}", tag);
+            return Ok(());
+        }
+        
+        println!("\n❌ Docker build failed!");
+        info!("Docker build failed with error");
+        
+        // Check if we've reached the maximum number of retries
+        if retry_count >= max_retries {
+            println!("Maximum retry attempts ({}) reached. Giving up.", max_retries);
+            info!("Maximum retry attempts reached. Giving up.");
+            return Err(anyhow!("Docker build failed after {} attempts", max_retries + 1));
+        }
+
+        // Create a ranking config from the relevance config for using with update_dockerfile_from_error
+        let ranking_config = RankingConfig {
+            llm: config.llm.clone(),
+            num_rankings: 3,
+            max_workers: config.max_workers,
+            max_tokens: config.max_tokens,
+            temperature: 0.0,
+            trajectory_store_dir: config.trajectory_store_dir.clone(),
+        };
+
+        // Update the Dockerfile using LLM suggestions
+        println!("\n🤖 Analyzing build error and updating Dockerfile...");
+        info!("Attempting to fix Dockerfile using LLM...");
+        let updated_dockerfile = update_dockerfile_from_error(&ranking_config, problem, &dockerfile_path, &error_output).await?;
+
+        // Save the updated Dockerfile
+        let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
+        fs::copy(&dockerfile_path, &backup_path).context(format!(
+            "Failed to create backup of Dockerfile at {:?}",
+            backup_path
+        ))?;
+        println!("📄 Created backup of original Dockerfile at {:?}", backup_path);
+        info!("Created backup of original Dockerfile at {:?}", backup_path);
+
+        fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
+            "Failed to write updated Dockerfile to {:?}",
+            dockerfile_path
+        ))?;
+        println!("📄 Updated Dockerfile with LLM suggestions");
+        info!("Updated Dockerfile with LLM suggestions");
+
+        // Increment retry counter
+        retry_count += 1;
+    }
+}
+
 pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag: &str, max_retries: usize) -> Result<()> {
     info!("Building Docker image with tag: {}", tag);
 
     // Create a trajectory store for this problem
-    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &problem).context(format!(
+    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
         "Failed to create trajectory store for problem: {}",
         problem.id
     ))?;

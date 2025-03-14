@@ -1,5 +1,4 @@
-use anyhow::Result;
-use engine_builder::llm::prompts::{get_dockerfile_error_user_prompt, DOCKERFILE_ERROR_SYSTEM_PROMPT};
+use engine_builder::llm::prompts::get_dockerfile_error_user_prompt;
 use engine_builder::stages::dockerfile::extract_dockerfile;
 
 #[test]

@@ -26,6 +26,7 @@ Focus on files that are most likely related to the issue. Consider:
 - Core files that might need modification
 - Configuration files that might be relevant
 - Test files may be useful for understanding but are less likely to need changes
+- Dockerfiles
 
 Your output format should be a JSON array of strings surrounded by triple backticks:
 
@@ -84,7 +85,7 @@ You need to reenter the entire decision with the correct formatting, but don't n
 Some notes:
 - The issue description will be wrapped in <issue></issue> tags.
 - The file content will be wrapped in <content></content> tags.
-- Include your thoughts on the relevance before the structured output. 
+- Include your thoughts on the relevance before the structured output.
 - Be precise in following the output format to ensure correct parsing.
 - The summary for relevant files will be used for ranking, so make it informative and focused on the file's importance to the issue.
 - Before outputting your decision, take time to thoroughly analyze the issue and the code file.
@@ -160,7 +161,7 @@ Your task is to:
    - Can use fewer than {target_tokens} tokens if you're confident no other context is needed
 3. Stop ranking once you've included all potentially necessary files and sufficient context
 
-Remember: 
+Remember:
 - The downstream model can ONLY see what you include
 - If you exclude a file that needs editing, the model will fail
 - When in doubt about whether a file needs editing, include it
@@ -236,7 +237,7 @@ pub fn get_ranking_user_prompt(
 
     format!(
         r#"{}
-    
+
 Please rank the following files based on their relevance to the given GitHub issue.
 
 GitHub Issue:
@@ -258,7 +259,7 @@ Please provide your ranking and explanation as specified in the system prompt."#
 pub const DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile for a project based on the context from provided code files. You will need to determine:
 
 1. The appropriate base image
-2. Required dependencies 
+2. Required dependencies
 3. Build steps
 4. Files to copy
 5. Environment variables
@@ -267,7 +268,7 @@ pub const DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker contai
 
 The Dockerfile should follow best practices:
 - Use specific image tags instead of 'latest'
-- Leverage layer caching properly 
+- Leverage layer caching properly
 - Clean up unnecessary build artifacts
 - Follow multi-stage builds when appropriate
 - Minimize image size

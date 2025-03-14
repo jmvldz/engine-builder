@@ -41,7 +41,7 @@ impl TrajectoryStore {
     }
 
     /// Get the path to the relevance decisions file
-    fn relevance_decisions_path(&self) -> PathBuf {
+    pub fn relevance_decisions_path(&self) -> PathBuf {
         self.problem_dir().join("relevance_decisions.json")
     }
 
@@ -56,7 +56,7 @@ impl TrajectoryStore {
         decisions.contains_key(file_path)
     }
 
-    /// Load all relevance decisions
+    /// Load all relevance decisions from the relevance_decisions.json file
     pub fn load_relevance_decisions(&self) -> Result<HashMap<String, RelevanceDecision>> {
         let path = self.relevance_decisions_path();
 
@@ -75,6 +75,12 @@ impl TrajectoryStore {
 
         Ok(decisions)
     }
+    
+    /// Load all relevance decisions from the consolidated file
+    pub fn load_all_relevance_decisions(&self) -> Result<HashMap<String, RelevanceDecision>> {
+        // Just use the existing load_relevance_decisions method that reads from the consolidated file
+        self.load_relevance_decisions()
+    }
 
     /// Save a relevance decision for a file
     pub fn save_per_file_relevance_decision(
@@ -82,6 +88,7 @@ impl TrajectoryStore {
         file_path: &str,
         decision: RelevanceDecision,
     ) -> Result<()> {
+        // Save to the consolidated relevance_decisions.json file
         let path = self.relevance_decisions_path();
 
         // Load existing decisions
