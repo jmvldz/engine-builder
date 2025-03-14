@@ -42,6 +42,19 @@
     "temperature": 0.0,
     "output_path": "Dockerfile"
   },
+  "scripts": {
+    "llm": {
+      "model_type": "anthropic",
+      "model": "claude-3-opus-20240229",
+      "api_key": "your_anthropic_api_key_here",
+      "base_url": null,
+      "timeout": 60,
+      "max_retries": 3
+    },
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_retries": 3
+  },
   "codebase": {
     "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",

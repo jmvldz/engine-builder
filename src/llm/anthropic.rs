@@ -64,6 +64,13 @@ pub struct AnthropicClient {
 impl AnthropicClient {
     /// Create a new Anthropic client
     pub fn new(config: &LLMConfig) -> Result<Self> {
+        // Validate API key
+        if config.api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Anthropic API key is empty. Please provide a valid API key in your config.json file under the appropriate section."
+            ));
+        }
+
         let mut headers = header::HeaderMap::new();
 
         // Add the API key header

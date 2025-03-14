@@ -117,6 +117,8 @@ async fn main() -> Result<()> {
             info!("Running full pipeline");
             relevance::process_codebase(config.relevance.clone(), &config.codebase, problem.clone())
                 .await?;
+            info!("Generating lint and test scripts based on relevance data");
+            engine_builder::stages::scripts::generate_scripts(config.relevance.clone(), config.scripts.clone(), problem.clone()).await?;
             info!("Generating test-focused Dockerfile based on relevance data");
             dockerfile::generate_dockerfile_from_relevance(config.relevance, problem.clone()).await?;
         }
