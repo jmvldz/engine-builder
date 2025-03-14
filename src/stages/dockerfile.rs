@@ -301,9 +301,32 @@ pub async fn generate_dockerfile_from_relevance(
     let dockerfile_content = extract_dockerfile(&response.content)
         .context("Failed to extract Dockerfile content from LLM response")?;
 
+    // Check if scripts exist and append commands to copy them into the Docker image
+    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
+    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
+    
+    let mut final_dockerfile_content = dockerfile_content.clone();
+    
+    // If both scripts exist, append commands to copy them into the Docker image
+    if lint_script_path.exists() && test_script_path.exists() {
+        info!("Found lint and test scripts, adding them to the Dockerfile");
+        
+        // Append commands to copy scripts and make them executable
+        let script_commands = r#"
+# Copy lint and test scripts
+COPY lint-script.sh /usr/local/bin/lint-script.sh
+COPY test-script.sh /usr/local/bin/test-script.sh
+
+# Make scripts executable
+RUN chmod +x /usr/local/bin/lint-script.sh /usr/local/bin/test-script.sh
+"#;
+        
+        final_dockerfile_content.push_str(script_commands);
+    }
+
     // Save to the trajectory store directory
     let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
-    fs::write(&dockerfile_path, &dockerfile_content).context(format!(
+    fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
         "Failed to write test-focused Dockerfile to {:?}",
         dockerfile_path
     ))?;
@@ -338,6 +361,28 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
     let docker_context_dir = problem.get_codebase_path()
         .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
     info!("Using repository as Docker context: {:?}", docker_context_dir);
+    
+    // Copy scripts to the Docker context if they exist
+    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
+    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
+    
+    if lint_script_path.exists() {
+        let dest_path = docker_context_dir.join("lint-script.sh");
+        fs::copy(&lint_script_path, &dest_path).context(format!(
+            "Failed to copy lint script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!("Copied lint script to Docker context: {:?}", dest_path);
+    }
+    
+    if test_script_path.exists() {
+        let dest_path = docker_context_dir.join("test-script.sh");
+        fs::copy(&test_script_path, &dest_path).context(format!(
+            "Failed to copy test script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!("Copied test script to Docker context: {:?}", dest_path);
+    }
 
     // Try building the Docker image, with retries if it fails
     let mut retry_count = 0;
