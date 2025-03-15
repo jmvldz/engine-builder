@@ -3,6 +3,7 @@ use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, warn};
 use regex::Regex;
+use std::fs;
 
 use crate::config::{CodebaseConfig, RelevanceConfig};
 use crate::llm::client::{create_client, LLMClient};
@@ -193,7 +194,8 @@ async fn assess_file_relevance(
     Ok(llm_response.usage)
 }
 
-use crate::stages::file_selection::{run_file_selection, save_file_patterns};
+use crate::stages::file_selection::{parse_file_patterns, save_file_patterns};
+use std::path::Path;
 
 /// Process the codebase to assess file relevance
 pub async fn process_codebase(
@@ -246,12 +248,21 @@ pub async fn process_codebase(
             configured_problem.id
         ))?;
 
-    // Run file selection to get file patterns
-    let (file_patterns, file_selection_usage) =
-        run_file_selection(&config, codebase_config, &configured_problem).await?;
+    // Load file patterns from previously generated response file
+    let response_path = Path::new(&config.trajectory_store_dir)
+        .join(&configured_problem.id)
+        .join("codebase_tree_response.txt");
+
+    // Read existing file selection response
+    let response_content = fs::read_to_string(&response_path)
+        .context(format!("Failed to read codebase tree response from {:?}. Run file_selection first.", response_path))?;
+
+    // Parse file patterns from the existing response
+    let file_patterns = parse_file_patterns(&response_content)
+        .context("Failed to parse file patterns from response file")?;
 
     // Track total token usage across all LLM calls
-    let mut total_usage = file_selection_usage;
+    let mut total_usage = crate::llm::client::TokenUsage::default();
 
     // Save the file patterns for future reference
     save_file_patterns(

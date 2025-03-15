@@ -8,8 +8,10 @@ use std::process::{Command, Stdio};
 
 use crate::config::{RankingConfig, RelevanceConfig};
 use crate::llm::client::create_client;
-use crate::llm::prompts::{get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt, 
-                         DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT};
+use crate::llm::prompts::{
+    get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
+    DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT,
+};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::RelevanceStatus;
 use crate::utils::trajectory_store::TrajectoryStore;
@@ -43,7 +45,7 @@ pub async fn generate_dockerfile(
     ))?;
 
     // Get ranked files (limit to top N files to avoid context overflow)
-    let max_files = 10;
+    let max_files = 10; // Limiting to top 5 files
     let ranked_files = ranking
         .ranked_files
         .iter()
@@ -151,8 +153,10 @@ pub async fn update_dockerfile_from_error(
     info!("Updating Dockerfile based on build error");
 
     // Read the current Dockerfile content
-    let dockerfile_content = fs::read_to_string(dockerfile_path)
-        .context(format!("Failed to read Dockerfile at {:?}", dockerfile_path))?;
+    let dockerfile_content = fs::read_to_string(dockerfile_path).context(format!(
+        "Failed to read Dockerfile at {:?}",
+        dockerfile_path
+    ))?;
 
     // Create LLM client
     let client = create_client(&config.llm)
@@ -216,10 +220,12 @@ pub async fn generate_dockerfile_from_relevance(
     }
 
     // Load all relevance decisions and find relevant files
-    let all_decisions = trajectory_store.load_all_relevance_decisions().context(format!(
-        "Failed to load relevance decisions for problem: {}",
-        problem.id
-    ))?;
+    let all_decisions = trajectory_store
+        .load_all_relevance_decisions()
+        .context(format!(
+            "Failed to load relevance decisions for problem: {}",
+            problem.id
+        ))?;
 
     // Get relevant files
     let relevant_files = all_decisions
@@ -275,8 +281,11 @@ pub async fn generate_dockerfile_from_relevance(
         })
         .collect::<Vec<_>>();
 
-    let prompt =
-        get_test_dockerfile_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    let prompt = get_test_dockerfile_user_prompt(
+        &problem.problem_statement,
+        &formatted_files,
+        &file_contents,
+    );
 
     // Generate test-focused Dockerfile
     info!("Generating test-focused Dockerfile...");
@@ -306,59 +315,64 @@ pub async fn generate_dockerfile_from_relevance(
     let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
     let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
     let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
-    
+
     let mut final_dockerfile_content = dockerfile_content.clone();
-    
+
     // Initialize a string to hold the script commands
     let mut script_commands = String::new();
-    
+
     // Start building the script commands
     script_commands.push_str("\n# Copy scripts\n");
-    
+
     // Add each script that exists
     if setup_script_path.exists() {
         script_commands.push_str("COPY setup-script.sh /usr/local/bin/setup-script.sh\n");
     }
-    
+
     if lint_script_path.exists() {
         script_commands.push_str("COPY lint-script.sh /usr/local/bin/lint-script.sh\n");
     }
-    
+
     if test_script_path.exists() {
         script_commands.push_str("COPY test-script.sh /usr/local/bin/test-script.sh\n");
     }
-    
+
     if single_test_script_path.exists() {
-        script_commands.push_str("COPY single-test-script.sh /usr/local/bin/single-test-script.sh\n");
+        script_commands
+            .push_str("COPY single-test-script.sh /usr/local/bin/single-test-script.sh\n");
     }
-    
+
     // Add the RUN chmod command if any scripts exist
-    if setup_script_path.exists() || lint_script_path.exists() || test_script_path.exists() || single_test_script_path.exists() {
+    if setup_script_path.exists()
+        || lint_script_path.exists()
+        || test_script_path.exists()
+        || single_test_script_path.exists()
+    {
         script_commands.push_str("\n# Make scripts executable\nRUN chmod +x ");
-        
+
         let mut executables = Vec::new();
-        
+
         if setup_script_path.exists() {
             executables.push("/usr/local/bin/setup-script.sh");
         }
-        
+
         if lint_script_path.exists() {
             executables.push("/usr/local/bin/lint-script.sh");
         }
-        
+
         if test_script_path.exists() {
             executables.push("/usr/local/bin/test-script.sh");
         }
-        
+
         if single_test_script_path.exists() {
             executables.push("/usr/local/bin/single-test-script.sh");
         }
-        
+
         script_commands.push_str(&executables.join(" "));
         script_commands.push_str("\n");
-        
+
         info!("Found scripts, adding them to the Dockerfile");
-        
+
         final_dockerfile_content.push_str(&script_commands);
     }
 
@@ -374,14 +388,20 @@ pub async fn generate_dockerfile_from_relevance(
     Ok(())
 }
 
-pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem: &SWEBenchProblem, tag: &str, max_retries: usize) -> Result<()> {
+pub async fn build_docker_image_from_relevance(
+    config: &RelevanceConfig,
+    problem: &SWEBenchProblem,
+    tag: &str,
+    max_retries: usize,
+) -> Result<()> {
     info!("Building Docker image with tag: {}", tag);
 
     // Create a trajectory store for this problem
-    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
-        "Failed to create trajectory store for problem: {}",
-        problem.id
-    ))?;
+    let trajectory_store =
+        TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
+            "Failed to create trajectory store for problem: {}",
+            problem.id
+        ))?;
 
     // Check if Dockerfile exists
     let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
@@ -391,21 +411,25 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
             dockerfile_path
         ));
     }
-    
+
     info!("Using Dockerfile at {:?}", dockerfile_path);
 
-    // Use the repository directory as the Docker context 
+    // Use the repository directory as the Docker context
     // This makes files from the repository available during the build
-    let docker_context_dir = problem.get_codebase_path()
+    let docker_context_dir = problem
+        .get_codebase_path()
         .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
-    info!("Using repository as Docker context: {:?}", docker_context_dir);
-    
+    info!(
+        "Using repository as Docker context: {:?}",
+        docker_context_dir
+    );
+
     // Copy scripts to the Docker context if they exist
     let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
     let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
     let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
     let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
-    
+
     if setup_script_path.exists() {
         let dest_path = docker_context_dir.join("setup-script.sh");
         fs::copy(&setup_script_path, &dest_path).context(format!(
@@ -414,7 +438,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         ))?;
         info!("Copied setup script to Docker context: {:?}", dest_path);
     }
-    
+
     if lint_script_path.exists() {
         let dest_path = docker_context_dir.join("lint-script.sh");
         fs::copy(&lint_script_path, &dest_path).context(format!(
@@ -423,7 +447,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         ))?;
         info!("Copied lint script to Docker context: {:?}", dest_path);
     }
-    
+
     if test_script_path.exists() {
         let dest_path = docker_context_dir.join("test-script.sh");
         fs::copy(&test_script_path, &dest_path).context(format!(
@@ -432,14 +456,17 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         ))?;
         info!("Copied test script to Docker context: {:?}", dest_path);
     }
-    
+
     if single_test_script_path.exists() {
         let dest_path = docker_context_dir.join("single-test-script.sh");
         fs::copy(&single_test_script_path, &dest_path).context(format!(
             "Failed to copy single test script to Docker context: {:?}",
             dest_path
         ))?;
-        info!("Copied single test script to Docker context: {:?}", dest_path);
+        info!(
+            "Copied single test script to Docker context: {:?}",
+            dest_path
+        );
     }
 
     // Try building the Docker image, with retries if it fails
@@ -447,9 +474,17 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
 
     loop {
         // Run docker build command with streaming output
-        println!("\n=== Docker Build (Attempt {}/{}) ===", retry_count + 1, max_retries + 1);
-        info!("Running docker build (attempt {}/{})...", retry_count + 1, max_retries + 1);
-        
+        println!(
+            "\n=== Docker Build (Attempt {}/{}) ===",
+            retry_count + 1,
+            max_retries + 1
+        );
+        info!(
+            "Running docker build (attempt {}/{})...",
+            retry_count + 1,
+            max_retries + 1
+        );
+
         let mut child = Command::new("docker")
             .arg("build")
             .arg("-t")
@@ -461,16 +496,16 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to execute docker build command")?;
-        
+
         // Stream stdout in real-time
         let stdout = child.stdout.take().expect("Failed to capture stdout");
         let stdout_reader = BufReader::new(stdout);
         let stderr = child.stderr.take().expect("Failed to capture stderr");
         let stderr_reader = BufReader::new(stderr);
-        
+
         // Collect stderr for potential error analysis
         let mut error_output = String::new();
-        
+
         // Create a thread to read and display stdout
         let stdout_handle = std::thread::spawn(move || {
             for line in stdout_reader.lines() {
@@ -479,7 +514,7 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
                 }
             }
         });
-        
+
         // Read and display stderr, also collecting it for error analysis if needed
         for line in stderr_reader.lines() {
             if let Ok(line) = line {
@@ -488,28 +523,36 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
                 error_output.push('\n');
             }
         }
-        
+
         // Wait for stdout thread to complete
         stdout_handle.join().expect("Failed to join stdout thread");
-        
+
         // Wait for the command to complete and get the exit status
-        let status = child.wait().context("Failed to wait for docker build command")?;
-        
+        let status = child
+            .wait()
+            .context("Failed to wait for docker build command")?;
+
         if status.success() {
             println!("\nDocker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
             return Ok(());
         }
-        
+
         println!("\nDocker build failed!");
         info!("Docker build failed with error");
-        
+
         // Check if we've reached the maximum number of retries
         if retry_count >= max_retries {
-            println!("Maximum retry attempts ({}) reached. Giving up.", max_retries);
+            println!(
+                "Maximum retry attempts ({}) reached. Giving up.",
+                max_retries
+            );
             info!("Maximum retry attempts reached. Giving up.");
-            return Err(anyhow!("Docker build failed after {} attempts", max_retries + 1));
+            return Err(anyhow!(
+                "Docker build failed after {} attempts",
+                max_retries + 1
+            ));
         }
 
         // Create a ranking config from the relevance config for using with update_dockerfile_from_error
@@ -525,7 +568,9 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
         // Update the Dockerfile using LLM suggestions
         println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
-        let updated_dockerfile = update_dockerfile_from_error(&ranking_config, problem, &dockerfile_path, &error_output).await?;
+        let updated_dockerfile =
+            update_dockerfile_from_error(&ranking_config, problem, &dockerfile_path, &error_output)
+                .await?;
 
         // Save the updated Dockerfile
         let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
@@ -548,14 +593,20 @@ pub async fn build_docker_image_from_relevance(config: &RelevanceConfig, problem
     }
 }
 
-pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProblem, tag: &str, max_retries: usize) -> Result<()> {
+pub async fn build_docker_image(
+    config: &RankingConfig,
+    problem: &SWEBenchProblem,
+    tag: &str,
+    max_retries: usize,
+) -> Result<()> {
     info!("Building Docker image with tag: {}", tag);
 
     // Create a trajectory store for this problem
-    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
-        "Failed to create trajectory store for problem: {}",
-        problem.id
-    ))?;
+    let trajectory_store =
+        TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
+            "Failed to create trajectory store for problem: {}",
+            problem.id
+        ))?;
 
     // Check if Dockerfile exists
     let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
@@ -568,20 +619,32 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
 
     info!("Using Dockerfile at {:?}", dockerfile_path);
 
-    // Use the repository directory as the Docker context 
+    // Use the repository directory as the Docker context
     // This makes files from the repository available during the build
-    let docker_context_dir = problem.get_codebase_path()
+    let docker_context_dir = problem
+        .get_codebase_path()
         .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
-    info!("Using repository as Docker context: {:?}", docker_context_dir);
+    info!(
+        "Using repository as Docker context: {:?}",
+        docker_context_dir
+    );
 
     // Try building the Docker image, with retries if it fails
     let mut retry_count = 0;
 
     loop {
         // Run docker build command with streaming output
-        println!("\n=== Docker Build (Attempt {}/{}) ===", retry_count + 1, max_retries + 1);
-        info!("Running docker build (attempt {}/{})...", retry_count + 1, max_retries + 1);
-        
+        println!(
+            "\n=== Docker Build (Attempt {}/{}) ===",
+            retry_count + 1,
+            max_retries + 1
+        );
+        info!(
+            "Running docker build (attempt {}/{})...",
+            retry_count + 1,
+            max_retries + 1
+        );
+
         let mut child = Command::new("docker")
             .arg("build")
             .arg("-t")
@@ -593,16 +656,16 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to execute docker build command")?;
-        
+
         // Stream stdout in real-time
         let stdout = child.stdout.take().expect("Failed to capture stdout");
         let stdout_reader = BufReader::new(stdout);
         let stderr = child.stderr.take().expect("Failed to capture stderr");
         let stderr_reader = BufReader::new(stderr);
-        
+
         // Collect stderr for potential error analysis
         let mut error_output = String::new();
-        
+
         // Create a thread to read and display stdout
         let stdout_handle = std::thread::spawn(move || {
             for line in stdout_reader.lines() {
@@ -611,7 +674,7 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
                 }
             }
         });
-        
+
         // Read and display stderr, also collecting it for error analysis if needed
         for line in stderr_reader.lines() {
             if let Ok(line) = line {
@@ -620,34 +683,43 @@ pub async fn build_docker_image(config: &RankingConfig, problem: &SWEBenchProble
                 error_output.push('\n');
             }
         }
-        
+
         // Wait for stdout thread to complete
         stdout_handle.join().expect("Failed to join stdout thread");
-        
+
         // Wait for the command to complete and get the exit status
-        let status = child.wait().context("Failed to wait for docker build command")?;
-        
+        let status = child
+            .wait()
+            .context("Failed to wait for docker build command")?;
+
         if status.success() {
             println!("\nDocker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
             return Ok(());
         }
-        
+
         println!("\nDocker build failed!");
         info!("Docker build failed with error");
-        
+
         // Check if we've reached the maximum number of retries
         if retry_count >= max_retries {
-            println!("Maximum retry attempts ({}) reached. Giving up.", max_retries);
+            println!(
+                "Maximum retry attempts ({}) reached. Giving up.",
+                max_retries
+            );
             info!("Maximum retry attempts reached. Giving up.");
-            return Err(anyhow!("Docker build failed after {} attempts", max_retries + 1));
+            return Err(anyhow!(
+                "Docker build failed after {} attempts",
+                max_retries + 1
+            ));
         }
 
         // Update the Dockerfile using LLM suggestions
         println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
-        let updated_dockerfile = update_dockerfile_from_error(config, problem, &dockerfile_path, &error_output).await?;
+        let updated_dockerfile =
+            update_dockerfile_from_error(config, problem, &dockerfile_path, &error_output).await?;
 
         // Save the updated Dockerfile
         let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));

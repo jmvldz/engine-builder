@@ -20,6 +20,9 @@ Your task is to output a list of file patterns that should be processed. These p
 
 IMPORTANT: Do NOT include "./" prefix in any file paths. Paths should be relative to the root (e.g., "src/main.rs", not "./src/main.rs").
 
+IMPORTANT: In the general case, specific code files should NOT be included unless they specifically relate to running tests or generating a Dockerfile.
+Focus primarily on configuration files, test files, CI files, and build files that would be necessary for these operations.
+
 Focus on files that are most likely related to the issue. Consider:
 - Files mentioned in the issue
 - Files with names related to the issue's domain
@@ -53,6 +56,9 @@ You should write down your thought process and think carefully about how the fil
 
 Then, decide if the file might need to be edited or not. If it may, we'll say the file is 'relevant'.
 If a function has relevant details to solving the problem, it should be included.
+
+IMPORTANT: In the general case, specific code files should NOT be included unless they specifically relate to running tests or generating a Dockerfile.
+Focus primarily on configuration files, test files, CI files, and build files that would be necessary for these operations.
 
 In summary, include anything you think may need to be edited or understood. In your summary, explain this.
 
@@ -133,6 +139,8 @@ pub const RANKING_PROMPT: &str = r#"You're helping prepare context for an AI mod
 You have a maximum token budget of {max_tokens} tokens. While you'll typically want to use around {target_tokens} tokens, ALWAYS include any files that might need editing, even if this means going up to the maximum. The file summaries can sometimes miss details about what needs to be edited, so be conservative - if there's a chance a file needs editing, include it.
 
 That being said, a longer context means the system is more expensive to run, so don't include unnecessary files.
+
+IMPORTANT: In the general case, specific code files should NOT be included unless they specifically relate to running tests or generating a Dockerfile. Focus primarily on configuration files, test files, CI files, and build files that would be necessary for these operations.
 
 You will be provided with:
 1. A GitHub issue description
@@ -273,8 +281,8 @@ The Dockerfile should follow best practices:
 - Follow multi-stage builds when appropriate
 - Minimize image size
 
-IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes. 
-Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh, 
+IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
+Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh,
 which will be generated separately and expected to run before other scripts.
 
 Analyze the code files to understand:
@@ -313,8 +321,8 @@ The test Dockerfile should follow best practices:
 - Set up the environment for running tests efficiently
 - Be optimized for test execution
 
-IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes. 
-Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh, 
+IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
+Anything that may change frequently (environment variables, packages, language-specific dependencies or package downloads etc.) should be placed in a setup-script.sh,
 which will be generated separately and expected to run before other scripts.
 
 Analyze the code files to understand:

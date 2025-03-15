@@ -72,7 +72,31 @@ fn get_relevant_files(
     trajectory_store: &TrajectoryStore,
     problem: &mut SWEBenchProblem,
 ) -> Result<Vec<RelevantFileDataForPrompt>> {
+    // Check for existence of relevance decisions file
+    let relevance_path = trajectory_store.relevance_decisions_path();
+    if !relevance_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Relevance decisions file not found at: {:?}. Run the relevance step first with 'cargo run --release -- relevance'",
+            relevance_path
+        ));
+    }
+
+    // Check for existence of file patterns (to ensure file_selection was run)
+    let file_patterns_path = trajectory_store.problem_dir().join("file_patterns.json");
+    if !file_patterns_path.exists() {
+        return Err(anyhow::anyhow!(
+            "File patterns not found at: {:?}. Run the file_selection step first with 'cargo run --release -- file_selection'",
+            file_patterns_path
+        ));
+    }
+
     let decisions = trajectory_store.load_relevance_decisions()?;
+    if decisions.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No relevance decisions found in {:?}. Run the relevance step first with 'cargo run --release -- relevance'",
+            relevance_path
+        ));
+    }
 
     let mut relevant_files = Vec::new();
 
@@ -86,7 +110,7 @@ fn get_relevant_files(
         // If no summary is provided, create one from the message
         let summary = decision.summary.unwrap_or_else(|| {
             // Use the message as a fallback summary if no summary is provided
-            "This file was marked as relevant to the issue: Determine how to run the server."
+            "This file was marked as relevant to the issue."
                 .to_string()
         });
 
@@ -324,6 +348,26 @@ async fn rank_problem_files(
 /// Process rankings for all problems
 pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProblem) -> Result<()> {
     info!("Starting file ranking");
+
+    // Create a trajectory store for this problem to check if previous steps were run
+    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &problem)
+        .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
+
+    // Check if file selection step was run
+    let file_patterns_path = trajectory_store.problem_dir().join("file_patterns.json");
+    if !file_patterns_path.exists() {
+        warn!("File patterns file not found at: {:?}", file_patterns_path);
+        warn!("Make sure you have run the file_selection step first with: cargo run --release -- file_selection");
+        return Err(anyhow::anyhow!("File selection step not run. Run 'cargo run --release -- file_selection' first."));
+    }
+
+    // Check if relevance step was run
+    let relevance_path = trajectory_store.relevance_decisions_path();
+    if !relevance_path.exists() {
+        warn!("Relevance decisions file not found at: {:?}", relevance_path);
+        warn!("Make sure you have run the relevance step first with: cargo run --release -- relevance");
+        return Err(anyhow::anyhow!("Relevance step not run. Run 'cargo run --release -- relevance' first."));
+    }
 
     // Create the LLM client
     let client = create_client(&config.llm)
