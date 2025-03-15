@@ -13,6 +13,8 @@ pub struct Config {
     pub dockerfile: DockerfileConfig,
     #[serde(default)]
     pub scripts: ScriptConfig,
+    #[serde(default)]
+    pub container: ContainerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +123,25 @@ impl Default for ScriptConfig {
     }
 }
 
+// Container configuration for running lint and test containers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContainerConfig {
+    pub timeout: u64,  // Timeout for container execution in seconds
+    pub parallel: bool, // Whether to run lint and test containers in parallel
+    pub remove: bool,  // Whether to remove containers after execution
+}
+
+impl Default for ContainerConfig {
+    fn default() -> Self {
+        Self {
+            timeout: 300,      // 5 minutes default timeout
+            parallel: false,   // Serial execution by default
+            remove: true,      // Remove containers by default
+        }
+    }
+}
+
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
         let path = path.unwrap_or("config.json");
@@ -170,6 +191,7 @@ impl Config {
             },
             dockerfile: DockerfileConfig::default(),
             scripts: ScriptConfig::default(),
+            container: ContainerConfig::default(),
         }
     }
 }

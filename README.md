@@ -8,7 +8,9 @@ engine-builder analyzes a codebase to identify and rank files that are relevant 
 
 1. **Relevance Assessment**: Evaluates each file in the codebase to determine if it's relevant to the problem.
 2. **File Ranking**: Ranks the relevant files to prioritize which files are most likely to need editing.
-3. **Dockerfile Generation**: Creates a Dockerfile based on the ranked files to containerize the application.
+3. **Script Generation**: Creates lint and test scripts customized for the problem.
+4. **Dockerfile Generation**: Creates a Dockerfile based on the ranked files to containerize the application.
+5. **Container Execution**: Runs the lint and test scripts in Docker containers, with optional parallel execution.
 
 ## Installation
 
@@ -61,9 +63,34 @@ For file selection only (subset of relevance that only selects files to process)
 cargo run --release -- -c path/to/config.json file-selection
 ```
 
-For Dockerfile generation (requires ranking to have been run first):
+For script generation (requires relevance to have been run first):
+```bash
+cargo run --release -- -c path/to/config.json generate-scripts
+```
+
+For Dockerfile generation (requires relevance to have been run first):
 ```bash
 cargo run --release -- -c path/to/config.json dockerfile
+```
+
+For building a Docker image:
+```bash
+cargo run --release -- -c path/to/config.json build-image --tag my-custom-tag
+```
+
+For running lint and test scripts in containers:
+```bash
+# Run just the lint script
+cargo run --release -- -c path/to/config.json run-lint --tag my-custom-tag
+
+# Run just the test script
+cargo run --release -- -c path/to/config.json run-test --tag my-custom-tag
+
+# Run both lint and test scripts sequentially
+cargo run --release -- -c path/to/config.json run-all --tag my-custom-tag
+
+# Run both lint and test scripts in parallel
+cargo run --release -- -c path/to/config.json run-all --tag my-custom-tag --parallel
 ```
 
 ### Command-line Arguments

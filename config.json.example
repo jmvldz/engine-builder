@@ -40,7 +40,8 @@
     },
     "max_tokens": 4096,
     "temperature": 0.0,
-    "output_path": "Dockerfile"
+    "output_path": "Dockerfile",
+    "max_retries": 3
   },
   "scripts": {
     "llm": {
@@ -54,6 +55,11 @@
     "max_tokens": 4096,
     "temperature": 0.0,
     "max_retries": 3
+  },
+  "container": {
+    "timeout": 300,
+    "parallel": false,
+    "remove": true
   },
   "codebase": {
     "path": "./path/to/your/codebase",

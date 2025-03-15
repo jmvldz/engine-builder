@@ -259,7 +259,7 @@ Please provide your ranking and explanation as specified in the system prompt."#
 pub const DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile for a project based on the context from provided code files. You will need to determine:
 
 1. The appropriate base image
-2. Required dependencies
+2. Required system-level dependencies
 3. Build steps
 4. Files to copy
 5. Environment variables
@@ -273,10 +273,14 @@ The Dockerfile should follow best practices:
 - Follow multi-stage builds when appropriate
 - Minimize image size
 
+IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes. 
+Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh, 
+which will be generated separately and expected to run before other scripts.
+
 Analyze the code files to understand:
 - The programming language and runtime requirements
 - Package managers used
-- Dependencies needed
+- System-level dependencies needed
 - How the application is built
 - How the application is started
 - Required configuration
@@ -294,7 +298,7 @@ The Dockerfile should be properly formatted and follow Docker best practices.
 pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile specifically optimized for RUNNING TESTS in a project based on the context from provided code files. You will need to determine:
 
 1. The appropriate base image for testing
-2. Required dependencies including test frameworks
+2. Required system-level dependencies including test frameworks
 3. Build and test preparation steps
 4. Files to copy
 5. Environment variables needed for testing
@@ -309,12 +313,16 @@ The test Dockerfile should follow best practices:
 - Set up the environment for running tests efficiently
 - Be optimized for test execution
 
+IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes. 
+Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh, 
+which will be generated separately and expected to run before other scripts.
+
 Analyze the code files to understand:
 - The programming language and runtime requirements
 - Package managers used
 - Test frameworks and tools used
 - How tests are organized and run
-- Dependencies needed for testing
+- System-level dependencies needed for testing
 - Configuration needed for tests
 
 Your output should include:
@@ -491,6 +499,14 @@ The script should follow best practices:
 - Include helpful comments
 - Be executable and standalone
 
+IMPORTANT: The lint script should contain ONLY the command to run the linter. It should NOT include:
+- Environment setup
+- Package installation
+- Other preparation steps
+
+All environment setup, package installation, and preparation should be done in a separate setup-script.sh, which you are not creating.
+Assume setup-script.sh has already been executed before this lint script runs.
+
 Analyze the code files to understand:
 - The programming language and framework used
 - The existing linting tools and configuration
@@ -513,6 +529,14 @@ The script should follow best practices:
 - Set appropriate error handling (e.g., set -e)
 - Include helpful comments
 - Be executable and standalone
+
+IMPORTANT: The test script should contain ONLY the command to run the tests. It should NOT include:
+- Environment setup
+- Package installation
+- Other preparation steps
+
+All environment setup, package installation, and preparation should be done in a separate setup-script.sh, which you are not creating.
+Assume setup-script.sh has already been executed before this test script runs.
 
 Analyze the code files to understand:
 - The programming language and framework used
@@ -555,10 +579,204 @@ File Contents:
 Based on these files, please create a comprehensive shell script that will properly lint this codebase.
 The script should be named `lint-script.sh` and should be executable.
 
+IMPORTANT: The lint script should contain ONLY the command to run the linter. It should NOT include:
+- Environment setup
+- Package installation
+- Other preparation steps
+
+All environment setup, package installation, and preparation will be done in a separate setup-script.sh,
+which will be run before this lint script.
+
 Your response should include:
 1. Your analysis of the project type, language, and linting requirements
 2. A complete, ready-to-use shell script with explanatory comments
 3. A brief summary of key decisions made (linting tools, commands, etc.)
+
+Format your shell script between ```sh and ``` tags."#,
+        problem_statement,
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        file_content_sections.join("\n\n")
+    )
+}
+
+/// System prompt for single test script generation
+pub const SINGLE_TEST_SCRIPT_SYSTEM_PROMPT: &str = r#"You are an expert in creating shell scripts for running individual tests in software projects. You will create a test script that can run a single specific test file based on the context from provided code files. You will need to determine:
+
+1. The appropriate testing framework for the project
+2. The correct command to run a single test file
+3. Any configuration options needed
+4. How to handle errors and return appropriate exit codes
+
+The script should follow best practices:
+- Include proper shebang line
+- Set appropriate error handling (e.g., set -e)
+- Include helpful comments
+- Be executable and standalone
+
+IMPORTANT: The script should accept a single file path parameter. It should include template parameters like:
+- {{file}} - The path to the test file to run
+- {{originalFile}} - The original path to the test file (before any modifications)
+
+For example, for a Go project, the script might look like:
+```
+#!/bin/bash
+set -e
+
+UNIQUE_TEST_FILE={{file}}
+ORIGINAL_TEST_FILE={{originalFile}}
+
+# Get the implementation file by removing _test.go and adding .go
+IMPL_FILE=${ORIGINAL_TEST_FILE%_test.go}.go
+
+# Run the test with both files
+go test -count=1 -v ${IMPL_FILE} ${UNIQUE_TEST_FILE}
+```
+
+IMPORTANT: The test script should contain ONLY the command to run the test. It should NOT include:
+- Environment setup
+- Package installation
+- Other preparation steps
+
+All environment setup, package installation, and preparation should be done in a separate setup-script.sh, which you are not creating.
+Assume setup-script.sh has already been executed before this test script runs.
+
+Analyze the code files to understand:
+- The programming language and framework used
+- The existing testing framework and configuration
+- Any test organization or patterns
+
+Your output should be a complete, ready-to-use shell script that can run a single test file.
+The script should be properly formatted and follow shell scripting best practices.
+"#;
+
+/// System prompt for setup script generation
+pub const SETUP_SCRIPT_SYSTEM_PROMPT: &str = r#"You are an expert in creating shell scripts for setting up environments in software projects. You will create a setup script based on the context from provided code files. You will need to determine:
+
+1. Environment variables that need to be set
+2. Packages that need to be installed
+3. Any configuration or initialization steps
+4. Other preparation steps needed before running tests or linters
+
+The script should follow best practices:
+- Include proper shebang line
+- Set appropriate error handling (e.g., set -e)
+- Include helpful comments
+- Be executable and standalone
+
+IMPORTANT: This setup script will be run BEFORE any other scripts (lint-script.sh, test-script.sh).
+It should contain ALL environment setup, package installation, and preparation steps needed.
+
+The test and lint scripts will contain ONLY the commands to run tests and linters,
+so your setup script must ensure the environment is completely ready for them.
+
+Analyze the code files to understand:
+- The programming language and framework used
+- Required packages and dependencies
+- Environment variables needed
+- Configuration needed for testing and linting
+
+Your output should be a complete, ready-to-use shell script that sets up the environment.
+The script should be properly formatted and follow shell scripting best practices.
+"#;
+
+/// Generate a setup script generation prompt
+pub fn get_setup_script_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+
+    format!(
+        r#"Please create a setup shell script for the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a comprehensive setup shell script that will prepare the environment for testing and linting.
+The script should be named `setup-script.sh` and should be executable.
+
+This setup script will be run BEFORE any other scripts (lint-script.sh, test-script.sh).
+It should contain ALL environment setup, package installation, and preparation steps needed.
+
+The test and lint scripts will contain ONLY the commands to run tests and linters,
+so your setup script must ensure the environment is completely ready for them.
+
+Your response should include:
+1. Your analysis of the project type, language, and setup requirements
+2. A complete, ready-to-use shell script with explanatory comments
+3. A brief summary of key decisions made (environment variables, packages, etc.)
+
+Format your shell script between ```sh and ``` tags."#,
+        problem_statement,
+        ranked_files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        file_content_sections.join("\n\n")
+    )
+}
+
+/// Generate a single test script generation prompt
+pub fn get_single_test_script_user_prompt(
+    problem_statement: &str,
+    ranked_files: &[RankedCodebaseFile],
+    file_contents: &[(String, String)], // (path, content) pairs
+) -> String {
+    let mut file_content_sections = Vec::new();
+
+    for (path, content) in file_contents {
+        file_content_sections.push(format!(
+            "File: {}\n<content>\n{}\n</content>",
+            path, content
+        ));
+    }
+
+    format!(
+        r#"Please create a shell script for running a single test file on the following project based on the ranked files and their contents.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Ranked Files (most important first):
+{}
+
+File Contents:
+{}
+
+Based on these files, please create a script that can run a single specific test file.
+The script should be named `single-test-script.sh` and should be executable.
+
+IMPORTANT: The script should accept a single file path parameter. It should include template parameters like:
+- {{file}} - The path to the test file to run
+- {{originalFile}} - The original path to the test file (before any modifications)
+
+Your response should include:
+1. Your analysis of the project type, language, and testing requirements
+2. A complete, ready-to-use shell script with explanatory comments
+3. A brief summary of key decisions made
 
 Format your shell script between ```sh and ``` tags."#,
         problem_statement,
@@ -602,6 +820,14 @@ File Contents:
 
 Based on these files, please create a comprehensive shell script that will properly test this codebase.
 The script should be named `test-script.sh` and should be executable.
+
+IMPORTANT: The test script should contain ONLY the command to run the tests. It should NOT include:
+- Environment setup
+- Package installation
+- Other preparation steps
+
+All environment setup, package installation, and preparation will be done in a separate setup-script.sh,
+which will be run before this test script.
 
 Your response should include:
 1. Your analysis of the project type, language, and testing requirements

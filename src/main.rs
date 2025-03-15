@@ -3,8 +3,9 @@ use clap::Parser;
 use engine_builder::config::Config;
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::problem::SWEBenchProblem;
-use engine_builder::stages::{dockerfile, file_selection, ranking, relevance};
+use engine_builder::stages::{container, dockerfile, file_selection, ranking, relevance};
 use log::info;
+use colored::Colorize;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -49,6 +50,28 @@ enum Command {
     },
     /// Generate lint and test scripts based on relevant files
     GenerateScripts,
+    /// Run lint script in a Docker container
+    RunLint {
+        /// Tag name for the Docker image
+        #[arg(short, long, default_value = "engine-builder-test")]
+        tag: String,
+    },
+    /// Run test script in a Docker container
+    RunTest {
+        /// Tag name for the Docker image
+        #[arg(short, long, default_value = "engine-builder-test")]
+        tag: String,
+    },
+    /// Run both lint and test scripts in Docker containers
+    RunAll {
+        /// Tag name for the Docker image
+        #[arg(short, long, default_value = "engine-builder-test")]
+        tag: String,
+        
+        /// Run in parallel mode (both containers at once)
+        #[arg(short, long)]
+        parallel: bool,
+    },
 }
 
 /// Create a problem from the CLI args and config
@@ -142,6 +165,64 @@ async fn main() -> Result<()> {
         Command::GenerateScripts => {
             info!("Generating lint and test scripts based on relevance data");
             engine_builder::stages::scripts::generate_scripts(config.relevance.clone(), config.scripts, problem.clone()).await?;
+        }
+        Command::RunLint { tag } => {
+            info!("Running lint container with image tag: {}", tag);
+            let result = container::run_lint_container(&problem, &tag, &config.container).await?;
+            
+            // Print summary
+            println!("\nLint container execution complete");
+            println!("Exit code: {}", result.exit_code);
+            println!("Status: {}", if result.success { "SUCCESS" } else { "FAILED" });
+            
+            // Set exit code if container failed
+            if !result.success {
+                std::process::exit(1);
+            }
+        }
+        Command::RunTest { tag } => {
+            info!("Running test container with image tag: {}", tag);
+            let result = container::run_test_container(&problem, &tag, &config.container).await?;
+            
+            // Print summary
+            println!("\nTest container execution complete");
+            println!("Exit code: {}", result.exit_code);
+            println!("Status: {}", if result.success { "SUCCESS" } else { "FAILED" });
+            
+            // Set exit code if container failed
+            if !result.success {
+                std::process::exit(1);
+            }
+        }
+        Command::RunAll { tag, parallel } => {
+            info!("Running both lint and test containers with image tag: {}", tag);
+            
+            // Override parallel flag from CLI if provided
+            let mut container_config = config.container.clone();
+            if parallel {
+                container_config.parallel = true;
+            }
+            
+            let (lint_result, test_result) = container::run_containers(
+                &problem, 
+                &tag, 
+                &container_config
+            ).await?;
+            
+            // Print summary
+            println!("\nContainer execution summary:");
+            println!("Lint container: {} (exit code: {})", 
+                if lint_result.success { "SUCCESS".green() } else { "FAILED".red() }, 
+                lint_result.exit_code);
+                
+            println!("Test container: {} (exit code: {})", 
+                if test_result.success { "SUCCESS".green() } else { "FAILED".red() }, 
+                test_result.exit_code);
+            
+            // Set exit code if either container failed
+            if !lint_result.success || !test_result.success {
+                std::process::exit(1);
+            }
         }
     }
 

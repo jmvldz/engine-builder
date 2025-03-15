@@ -6,7 +6,9 @@ use std::fs;
 use crate::config::{RelevanceConfig, ScriptConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{get_lint_script_user_prompt, get_test_script_user_prompt, 
-                         LINT_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT};
+                         get_setup_script_user_prompt, get_single_test_script_user_prompt,
+                         LINT_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
+                         SETUP_SCRIPT_SYSTEM_PROMPT, SINGLE_TEST_SCRIPT_SYSTEM_PROMPT};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::RelevanceStatus;
 use crate::utils::trajectory_store::TrajectoryStore;
@@ -116,10 +118,80 @@ pub async fn generate_scripts(
             }
         })
         .collect::<Vec<_>>();
+    
+    // First check if we have a Dockerfile
+    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
+    let dockerfile_content = if dockerfile_path.exists() {
+        fs::read_to_string(&dockerfile_path).context(format!(
+            "Failed to read Dockerfile at {:?}",
+            dockerfile_path
+        ))?
+    } else {
+        String::new()
+    };
+
+    // Generate setup script first, including Dockerfile content for context if available
+    info!("Generating setup script...");
+    let mut setup_prompt = get_setup_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    
+    // Add Dockerfile content to the setup script prompt if available
+    if !dockerfile_content.is_empty() {
+        setup_prompt = format!(
+            "{}\n\nDockerfile (for context):\n<dockerfile>\n{}\n</dockerfile>\n\nPlease create a setup script that complements this Dockerfile by handling package installations, environment variables, and other setup that might change frequently.",
+            setup_prompt,
+            dockerfile_content
+        );
+    }
+    
+    // Create a combined prompt with system and user instructions
+    let combined_setup_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        SETUP_SCRIPT_SYSTEM_PROMPT, setup_prompt
+    );
+
+    let setup_response = client
+        .completion(&combined_setup_prompt, script_config.max_tokens, script_config.temperature)
+        .await
+        .context("Failed to generate setup script")?;
+
+    // Track usage
+    let setup_usage = setup_response.usage;
+    let setup_cost = client.calculate_cost(&setup_usage);
+    info!("Setup script generation LLM usage: {}", setup_usage);
+    info!("Setup script generation LLM cost: {}", setup_cost);
+
+    // Extract setup script content
+    let setup_script_content = extract_script(&setup_response.content)
+        .context("Failed to extract setup script content from LLM response")?;
+
+    // Save to the trajectory store directory
+    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
+    fs::write(&setup_script_path, &setup_script_content).context(format!(
+        "Failed to write setup script to {:?}",
+        setup_script_path
+    ))?;
+
+    // Make the script executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&setup_script_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&setup_script_path, perms)?;
+    }
+
+    info!("Setup script saved to {:?}", setup_script_path);
+
+    // Now that we have the setup script, include it in the context for the other scripts
+    let additional_context = format!(
+        "\n\nSetup Script (for context - already taken care of):\n<setup_script>\n{}\n</setup_script>\n\nYour script should NOT duplicate any setup from the above setup script.",
+        setup_script_content
+    );
 
     // Generate lint script
     info!("Generating lint script...");
-    let lint_prompt = get_lint_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    let mut lint_prompt = get_lint_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    lint_prompt.push_str(&additional_context);
     
     // Create a combined prompt with system and user instructions
     let combined_lint_prompt = format!(
@@ -162,7 +234,8 @@ pub async fn generate_scripts(
 
     // Generate test script
     info!("Generating test script...");
-    let test_prompt = get_test_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    let mut test_prompt = get_test_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    test_prompt.push_str(&additional_context);
     
     // Create a combined prompt with system and user instructions
     let combined_test_prompt = format!(
@@ -202,6 +275,50 @@ pub async fn generate_scripts(
     }
 
     info!("Test script saved to {:?}", test_script_path);
+
+    // Generate single test script
+    info!("Generating single test script...");
+    let mut single_test_prompt = get_single_test_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    single_test_prompt.push_str(&additional_context);
+    
+    // Create a combined prompt with system and user instructions
+    let combined_single_test_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        SINGLE_TEST_SCRIPT_SYSTEM_PROMPT, single_test_prompt
+    );
+
+    let single_test_response = client
+        .completion(&combined_single_test_prompt, script_config.max_tokens, script_config.temperature)
+        .await
+        .context("Failed to generate single test script")?;
+
+    // Track usage
+    let single_test_usage = single_test_response.usage;
+    let single_test_cost = client.calculate_cost(&single_test_usage);
+    info!("Single test script generation LLM usage: {}", single_test_usage);
+    info!("Single test script generation LLM cost: {}", single_test_cost);
+
+    // Extract single test script content
+    let single_test_script_content = extract_script(&single_test_response.content)
+        .context("Failed to extract single test script content from LLM response")?;
+
+    // Save to the trajectory store directory
+    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
+    fs::write(&single_test_script_path, &single_test_script_content).context(format!(
+        "Failed to write single test script to {:?}",
+        single_test_script_path
+    ))?;
+
+    // Make the script executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&single_test_script_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&single_test_script_path, perms)?;
+    }
+
+    info!("Single test script saved to {:?}", single_test_script_path);
 
     Ok(())
 }
