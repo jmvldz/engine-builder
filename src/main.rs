@@ -134,16 +134,41 @@ async fn main() -> Result<()> {
         }
         Command::Ranking => {
             info!("Running file ranking");
+            // Verify that relevance assessments have been run
+            let trajectory_store = engine_builder::utils::trajectory_store::TrajectoryStore::new(
+                &config.ranking.trajectory_store_dir, 
+                &problem
+            )?;
+            
+            let relevance_path = trajectory_store.relevance_decisions_path();
+            if !relevance_path.exists() {
+                info!("Relevance decisions file not found. Ensure you've run the relevance step first with 'cargo run --release -- relevance'");
+            }
+            
             ranking::process_rankings(config.ranking.clone(), problem.clone()).await?;
         }
         Command::Pipeline => {
             info!("Running full pipeline");
+            
+            // Run file selection first to generate codebase_tree_response.txt
+            info!("Running file selection process");
+            file_selection::process_file_selection(
+                config.relevance.clone(),
+                &config.codebase,
+                problem.clone(),
+            )
+            .await?;
+            
+            // Then process relevance using the existing codebase_tree_response.txt
             relevance::process_codebase(config.relevance.clone(), &config.codebase, problem.clone())
                 .await?;
-            info!("Generating lint and test scripts based on relevance data");
-            engine_builder::stages::scripts::generate_scripts(config.relevance.clone(), config.scripts.clone(), problem.clone()).await?;
-            info!("Generating test-focused Dockerfile based on relevance data");
-            dockerfile::generate_dockerfile_from_relevance(config.relevance, problem.clone()).await?;
+            
+            info!("Running file ranking");
+            ranking::process_rankings(config.ranking.clone(), problem.clone()).await?;
+            info!("Generating lint and test scripts based on ranked files");
+            engine_builder::stages::scripts::generate_scripts_from_ranking(config.ranking.clone(), config.scripts.clone(), problem.clone()).await?;
+            info!("Generating test-focused Dockerfile based on ranked files");
+            dockerfile::generate_dockerfile(config.ranking.clone(), problem.clone()).await?;
         }
         Command::FileSelection => {
             info!("Running file selection process");
@@ -155,16 +180,16 @@ async fn main() -> Result<()> {
             .await?;
         }
         Command::Dockerfile => {
-            info!("Generating test-focused Dockerfile based on relevance data");
-            dockerfile::generate_dockerfile_from_relevance(config.relevance.clone(), problem.clone()).await?;
+            info!("Generating test-focused Dockerfile based on ranked files");
+            dockerfile::generate_dockerfile(config.ranking.clone(), problem.clone()).await?;
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
-            dockerfile::build_docker_image_from_relevance(&config.relevance, &problem, &tag, config.dockerfile.max_retries).await?;
+            dockerfile::build_docker_image(&config.ranking, &problem, &tag, config.dockerfile.max_retries).await?;
         }
         Command::GenerateScripts => {
-            info!("Generating lint and test scripts based on relevance data");
-            engine_builder::stages::scripts::generate_scripts(config.relevance.clone(), config.scripts, problem.clone()).await?;
+            info!("Generating lint and test scripts based on ranked files");
+            engine_builder::stages::scripts::generate_scripts_from_ranking(config.ranking.clone(), config.scripts, problem.clone()).await?;
         }
         Command::RunLint { tag } => {
             info!("Running lint container with image tag: {}", tag);

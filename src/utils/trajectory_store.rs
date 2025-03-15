@@ -61,6 +61,7 @@ impl TrajectoryStore {
         let path = self.relevance_decisions_path();
 
         if !path.exists() {
+            log::warn!("Relevance decisions file not found at: {:?}", path);
             return Ok(HashMap::new());
         }
 

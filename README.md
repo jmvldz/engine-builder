@@ -48,27 +48,29 @@ cargo run --release -- -c path/to/config.json pipeline
 
 ### Running Individual Stages
 
-For relevance assessment only:
-```bash
-cargo run --release -- -c path/to/config.json relevance
-```
+**Important**: These stages must be run in sequence. The pipeline command automatically handles this sequence for you.
 
-For ranking only (requires relevance to have been run first):
-```bash
-cargo run --release -- -c path/to/config.json ranking
-```
-
-For file selection only (subset of relevance that only selects files to process):
+1. First, run file selection:
 ```bash
 cargo run --release -- -c path/to/config.json file-selection
 ```
 
-For script generation (requires relevance to have been run first):
+2. Next, run relevance assessment:
+```bash
+cargo run --release -- -c path/to/config.json relevance
+```
+
+3. Then run ranking:
+```bash
+cargo run --release -- -c path/to/config.json ranking
+```
+
+4. After ranking, you can generate scripts:
 ```bash
 cargo run --release -- -c path/to/config.json generate-scripts
 ```
 
-For Dockerfile generation (requires relevance to have been run first):
+5. And generate a Dockerfile:
 ```bash
 cargo run --release -- -c path/to/config.json dockerfile
 ```
