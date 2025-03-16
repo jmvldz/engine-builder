@@ -285,6 +285,17 @@ IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and set
 Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh,
 which will be generated separately and expected to run before other scripts.
 
+CRITICAL: Do NOT include any language-specific package installation commands in the Dockerfile. For example:
+- Do NOT include pip, pip3, poetry, pipenv commands for Python packages
+- Do NOT include npm, yarn, pnpm commands for JavaScript packages
+- Do NOT include cargo, rustup commands for Rust packages
+- Do NOT include go get, go install commands for Go packages
+- Do NOT include gem commands for Ruby packages
+- Do NOT include maven, gradle, mvn commands for Java packages
+- Do NOT include apt-get, apk, yum commands for language packages
+
+All language-specific package installation should happen in the setup-script.sh instead.
+
 Analyze the code files to understand:
 - The programming language and runtime requirements
 - Package managers used
@@ -324,6 +335,17 @@ The test Dockerfile should follow best practices:
 IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
 Anything that may change frequently (environment variables, packages, language-specific dependencies or package downloads etc.) should be placed in a setup-script.sh,
 which will be generated separately and expected to run before other scripts.
+
+CRITICAL: Do NOT include any language-specific package installation commands in the Dockerfile. For example:
+- Do NOT include pip, pip3, poetry, pipenv commands for Python packages
+- Do NOT include npm, yarn, pnpm commands for JavaScript packages
+- Do NOT include cargo, rustup commands for Rust packages
+- Do NOT include go get, go install commands for Go packages
+- Do NOT include gem commands for Ruby packages
+- Do NOT include maven, gradle, mvn commands for Java packages
+- Do NOT include apt-get, apk, yum commands for language packages
+
+All language-specific package installation should happen in the setup-script.sh instead.
 
 Analyze the code files to understand:
 - The programming language and runtime requirements
