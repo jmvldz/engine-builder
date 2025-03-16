@@ -1,10 +1,11 @@
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
 use std::time::Duration;
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::{info, warn, debug};
 use colored::Colorize;
 
 use crate::models::problem::SWEBenchProblem;
@@ -153,20 +154,36 @@ async fn run_container(
         }
     });
     
+    // Set up timeout cancellation channel
+    let (timeout_tx, timeout_rx) = mpsc::channel();
+    
     // Set timeout if configured
     let timeout = Duration::from_secs(config.timeout);
     let timeout_handle = if config.timeout > 0 {
         let container_name = container_name.to_string();
         let handle = thread::spawn(move || {
-            thread::sleep(timeout);
-            warn!("Container timeout reached for {}, stopping container", container_name);
+            debug!("Timeout thread started for container {}", container_name);
             
-            // Kill container if it's still running
-            let _ = Command::new("docker")
-                .args(["stop", &container_name])
-                .output();
+            // Wait for either timeout or cancellation signal
+            match timeout_rx.recv_timeout(timeout) {
+                Ok(_) => {
+                    debug!("Container {} completed before timeout, cancelling timeout thread", container_name);
+                    // Container completed normally, no need to kill it
+                }
+                Err(_) => {
+                    // Timeout reached or channel disconnected
+                    warn!("Container timeout reached for {}, stopping container", container_name);
+                    
+                    // Kill container if it's still running
+                    let _ = Command::new("docker")
+                        .args(["stop", &container_name])
+                        .output();
+                }
+            }
+            
+            debug!("Timeout thread for container {} exiting", container_name);
         });
-        Some(handle)
+        Some((handle, timeout_tx))
     } else {
         None
     };
@@ -179,8 +196,12 @@ async fn run_container(
     stdout_handle.join().expect("Failed to join stdout thread");
     stderr_handle.join().expect("Failed to join stderr thread");
     
-    // Cancel timeout if it's still waiting
-    if let Some(handle) = timeout_handle {
+    // Cancel timeout if it's still waiting by sending a message
+    if let Some((handle, tx)) = timeout_handle {
+        debug!("Container completed, signaling timeout thread to terminate");
+        // Send cancellation signal - ignore errors if receiver is already dropped
+        let _ = tx.send(());
+        // Join the timeout thread
         handle.join().expect("Failed to join timeout thread");
     }
     
