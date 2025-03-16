@@ -678,6 +678,13 @@ The script should follow best practices:
 IMPORTANT: This setup script will be run BEFORE any other scripts (lint-script.sh, test-script.sh).
 It should contain ALL environment setup, package installation, and preparation steps needed.
 
+IMPORTANT: ALWAYS assume the script will be running in a CI environment. This means:
+- No interactive prompts or user input
+- All commands must be non-interactive (use -y flags for apt, etc.)
+- Environment might be minimal, so install all required dependencies
+- No assumptions about pre-installed tools (except basic ones like bash)
+- Use environment variables with defaults for configuration
+
 The test and lint scripts will contain ONLY the commands to run tests and linters,
 so your setup script must ensure the environment is completely ready for them.
 

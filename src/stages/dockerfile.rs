@@ -108,9 +108,75 @@ pub async fn generate_dockerfile(
     let dockerfile_content = extract_dockerfile(&response.content)
         .context("Failed to extract Dockerfile content from LLM response")?;
 
+    // Check if scripts exist and append commands to copy them into the Docker image
+    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
+    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
+    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
+    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
+
+    let mut final_dockerfile_content = dockerfile_content.clone();
+
+    // Initialize a string to hold the script commands
+    let mut script_commands = String::new();
+
+    // Start building the script commands
+    script_commands.push_str("\n# Copy scripts\n");
+
+    // Add each script that exists
+    if setup_script_path.exists() {
+        script_commands.push_str("COPY setup-script.sh /usr/local/bin/setup-script.sh\n");
+    }
+
+    if lint_script_path.exists() {
+        script_commands.push_str("COPY lint-script.sh /usr/local/bin/lint-script.sh\n");
+    }
+
+    if test_script_path.exists() {
+        script_commands.push_str("COPY test-script.sh /usr/local/bin/test-script.sh\n");
+    }
+
+    if single_test_script_path.exists() {
+        script_commands
+            .push_str("COPY single-test-script.sh /usr/local/bin/single-test-script.sh\n");
+    }
+
+    // Add the RUN chmod command if any scripts exist
+    if setup_script_path.exists()
+        || lint_script_path.exists()
+        || test_script_path.exists()
+        || single_test_script_path.exists()
+    {
+        script_commands.push_str("\n# Make scripts executable\nRUN chmod +x ");
+
+        let mut executables = Vec::new();
+
+        if setup_script_path.exists() {
+            executables.push("/usr/local/bin/setup-script.sh");
+        }
+
+        if lint_script_path.exists() {
+            executables.push("/usr/local/bin/lint-script.sh");
+        }
+
+        if test_script_path.exists() {
+            executables.push("/usr/local/bin/test-script.sh");
+        }
+
+        if single_test_script_path.exists() {
+            executables.push("/usr/local/bin/single-test-script.sh");
+        }
+
+        script_commands.push_str(&executables.join(" "));
+        script_commands.push_str("\n");
+
+        info!("Found scripts, adding them to the Dockerfile");
+
+        final_dockerfile_content.push_str(&script_commands);
+    }
+
     // Save to the trajectory store directory
     let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
-    fs::write(&dockerfile_path, &dockerfile_content).context(format!(
+    fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
         "Failed to write test-focused Dockerfile to {:?}",
         dockerfile_path
     ))?;
@@ -628,6 +694,51 @@ pub async fn build_docker_image(
         "Using repository as Docker context: {:?}",
         docker_context_dir
     );
+
+    // Copy scripts to the Docker context if they exist
+    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
+    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
+    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
+    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
+
+    if setup_script_path.exists() {
+        let dest_path = docker_context_dir.join("setup-script.sh");
+        fs::copy(&setup_script_path, &dest_path).context(format!(
+            "Failed to copy setup script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!("Copied setup script to Docker context: {:?}", dest_path);
+    }
+
+    if lint_script_path.exists() {
+        let dest_path = docker_context_dir.join("lint-script.sh");
+        fs::copy(&lint_script_path, &dest_path).context(format!(
+            "Failed to copy lint script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!("Copied lint script to Docker context: {:?}", dest_path);
+    }
+
+    if test_script_path.exists() {
+        let dest_path = docker_context_dir.join("test-script.sh");
+        fs::copy(&test_script_path, &dest_path).context(format!(
+            "Failed to copy test script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!("Copied test script to Docker context: {:?}", dest_path);
+    }
+
+    if single_test_script_path.exists() {
+        let dest_path = docker_context_dir.join("single-test-script.sh");
+        fs::copy(&single_test_script_path, &dest_path).context(format!(
+            "Failed to copy single test script to Docker context: {:?}",
+            dest_path
+        ))?;
+        info!(
+            "Copied single test script to Docker context: {:?}",
+            dest_path
+        );
+    }
 
     // Try building the Docker image, with retries if it fails
     let mut retry_count = 0;
