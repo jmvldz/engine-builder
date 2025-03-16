@@ -93,6 +93,12 @@ pub async fn generate_dockerfile(
         TEST_DOCKERFILE_SYSTEM_PROMPT, prompt
     );
 
+    // Save the prompt to a file in the trajectory store
+    let prompt_path = trajectory_store.problem_dir().join("dockerfile-prompt.txt");
+    fs::write(&prompt_path, &format!("{}\n\n{}", TEST_DOCKERFILE_SYSTEM_PROMPT, prompt))
+        .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
+    info!("Dockerfile prompt saved to {:?}", prompt_path);
+
     let response = client
         .completion(&combined_prompt, config.max_tokens, config.temperature)
         .await
@@ -242,6 +248,13 @@ pub async fn update_dockerfile_from_error(
         DOCKERFILE_ERROR_SYSTEM_PROMPT, prompt
     );
 
+    // Save the prompt to a file in the trajectory store
+    let prompt_dir = Path::new(dockerfile_path).parent().unwrap_or(Path::new("."));
+    let prompt_path = prompt_dir.join("dockerfile-error-prompt.txt");
+    fs::write(&prompt_path, &format!("{}\n\n{}", DOCKERFILE_ERROR_SYSTEM_PROMPT, prompt))
+        .context(format!("Failed to write Dockerfile error prompt to {:?}", prompt_path))?;
+    info!("Dockerfile error prompt saved to {:?}", prompt_path);
+
     info!("Asking LLM for Dockerfile fixes...");
     let response = client
         .completion(&combined_prompt, config.max_tokens, config.temperature)
@@ -360,6 +373,12 @@ pub async fn generate_dockerfile_from_relevance(
         "System instructions:\n{}\n\nUser request:\n{}",
         TEST_DOCKERFILE_SYSTEM_PROMPT, prompt
     );
+
+    // Save the prompt to a file in the trajectory store
+    let prompt_path = trajectory_store.problem_dir().join("dockerfile-prompt.txt");
+    fs::write(&prompt_path, &format!("{}\n\n{}", TEST_DOCKERFILE_SYSTEM_PROMPT, prompt))
+        .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
+    info!("Dockerfile prompt saved to {:?}", prompt_path);
 
     let response = client
         .completion(&combined_prompt, config.max_tokens, 0.0)
