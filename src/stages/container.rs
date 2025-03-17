@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{self, Sender, Receiver};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use anyhow::{Context, Result};

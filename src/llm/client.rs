@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use log;
 use std::fmt;
+use std::sync::{Arc, Once};
 
 use crate::config::LLMConfig;
 use crate::llm::anthropic::AnthropicClient;
@@ -84,10 +85,14 @@ pub trait LLMClient: Send + Sync {
     ) -> Result<LLMResponse>;
 
     /// Get the name of the LLM client
-    fn name(&self) -> &str;
+    fn name(&self) -> &str {
+        "unknown"
+    }
 
     /// Get the cost per 1K tokens for prompt and completion
-    fn get_token_prices(&self) -> (f64, f64);
+    fn get_token_prices(&self) -> (f64, f64) {
+        (0.01, 0.01) // Default prices
+    }
 
     /// Fetch the latest pricing data from the provider API
     async fn fetch_pricing_data(&self) -> Result<()> {
@@ -103,8 +108,8 @@ pub trait LLMClient: Send + Sync {
     }
 }
 
-/// Create an LLM client from a configuration and fetch pricing data
-pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
+// Default client factory function
+async fn default_client_factory(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
     let client: Box<dyn LLMClient> = match config.model_type.as_str() {
         "openai" => {
             let client = OpenAIClient::new(config)?;
@@ -131,4 +136,63 @@ pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
     }
 
     Ok(client)
+}
+
+// Type for an async client factory function
+type AsyncClientFactory = fn(&LLMConfig) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Arc<dyn LLMClient>>> + Send>>;
+
+// Global state for client factory
+static INIT: Once = Once::new();
+static mut ASYNC_CLIENT_FACTORY: Option<AsyncClientFactory> = None;
+
+/// Set a custom async client factory function for testing
+pub fn set_client_factory(factory: AsyncClientFactory) {
+    unsafe {
+        INIT.call_once(|| {});
+        ASYNC_CLIENT_FACTORY = Some(factory);
+    }
+}
+
+/// Create an LLM client from a configuration and fetch pricing data
+pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
+    // Check if we have a custom factory
+    unsafe {
+        if let Some(factory) = ASYNC_CLIENT_FACTORY {
+            let arc_client = factory(config).await?;
+            
+            // Convert Arc<dyn LLMClient> to Box<dyn LLMClient>
+            // This is a bit of a hack, but needed for compatibility with existing code
+            struct ArcWrapper {
+                inner: Arc<dyn LLMClient>,
+            }
+            
+            #[async_trait]
+            impl LLMClient for ArcWrapper {
+                fn name(&self) -> &str {
+                    self.inner.name()
+                }
+                
+                fn get_token_prices(&self) -> (f64, f64) {
+                    self.inner.get_token_prices()
+                }
+                
+                async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<LLMResponse> {
+                    self.inner.completion(prompt, max_tokens, temperature).await
+                }
+                
+                async fn fetch_pricing_data(&self) -> Result<()> {
+                    self.inner.fetch_pricing_data().await
+                }
+                
+                fn calculate_cost(&self, usage: &TokenUsage) -> TokenCost {
+                    self.inner.calculate_cost(usage)
+                }
+            }
+            
+            return Ok(Box::new(ArcWrapper { inner: arc_client }));
+        }
+    }
+    
+    // Otherwise use the default factory
+    default_client_factory(config).await
 }
