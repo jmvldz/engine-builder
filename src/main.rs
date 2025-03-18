@@ -77,7 +77,7 @@ enum Command {
     /// Start an interactive chat with the configured LLM
     Chat {
         /// LLM model type (openai or anthropic)
-        #[arg(short, long)]
+        #[arg(short = 't', long)]
         model_type: Option<String>,
         
         /// LLM model name
