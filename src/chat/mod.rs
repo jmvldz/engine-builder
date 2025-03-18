@@ -154,7 +154,27 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                     }
                     history.push(tool_call_message);
                     
-                    match tools::execute_tool(&tool_name, &params, &app_config, &problem).await {
+                    // Create a temporary directory to hold outputs
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    let log_file_path = temp_dir.path().join("tool_output.log");
+                    
+                    // Set a special environment variable to signal to use a different log file
+                    std::env::set_var("ENGINE_BUILDER_TOOL_LOG", log_file_path.to_str().unwrap());
+                    
+                    // Use gag crate to redirect stdout to a file
+                    let stdout_file = std::fs::File::create(temp_dir.path().join("stdout.log")).unwrap();
+                    let stdout_redirect = gag::Redirect::stdout(stdout_file).unwrap();
+                    
+                    // Execute the tool
+                    let result = tools::execute_tool(&tool_name, &params, &app_config, &problem).await;
+                    
+                    // Stop redirecting stdout
+                    drop(stdout_redirect);
+                    
+                    // Unset the environment variable
+                    std::env::remove_var("ENGINE_BUILDER_TOOL_LOG");
+                    
+                    match result {
                         Ok(result) => {
                             // Create tool result message
                             let result_message = ChatMessage {

@@ -147,11 +147,11 @@ pub trait LLMClient: Send + Sync {
                     let input_json = serde_json::json!(prompt);
                     let output_json = serde_json::json!(response.content);
                     
-                    // Log the generation
+                    // Log the generation with full model name instead of just provider name
                     let _ = tracer.log_generation(
                         &trace_id_str,
                         gen_name,
-                        self.name(),
+                        self.model_name(),
                         &serde_json::to_string(&input_json).unwrap_or_else(|_| prompt.to_string()),
                         &serde_json::to_string(&output_json).unwrap_or_else(|_| response.content.clone()),
                         &response.usage,
@@ -167,9 +167,14 @@ pub trait LLMClient: Send + Sync {
         result
     }
 
-    /// Get the name of the LLM client
+    /// Get the name of the LLM client (provider name)
     fn name(&self) -> &str {
         "unknown"
+    }
+
+    /// Get the full model name for the LLM
+    fn model_name(&self) -> &str {
+        "unknown" // Should be overridden by implementations
     }
 
     /// Get the cost per 1K tokens for prompt and completion
@@ -253,6 +258,10 @@ pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
             impl LLMClient for ArcWrapper {
                 fn name(&self) -> &str {
                     self.inner.name()
+                }
+                
+                fn model_name(&self) -> &str {
+                    self.inner.model_name()
                 }
                 
                 fn get_token_prices(&self) -> (f64, f64) {
