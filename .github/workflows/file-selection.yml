@@ -1,0 +1,151 @@
+name: File Selection
+
+on:
+  workflow_dispatch:
+    inputs:
+      problem_statement:
+        description: 'Problem statement for file selection'
+        required: true
+        default: 'Fix the bug that causes X to happen when Y is triggered.'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_LOG: info
+
+jobs:
+  file-selection:
+    name: Run File Selection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+      
+      - name: Create test config
+        run: |
+          mkdir -p .github/workflows/test-configs
+          cp config.json.example .github/workflows/test-configs/test-config.json
+          cp exclusions.json .github/workflows/test-configs/exclusions.json
+          # Update the config to use mock values
+          sed -i 's/"your_anthropic_api_key_here"/"mock_api_key"/g' .github/workflows/test-configs/test-config.json
+          sed -i 's/"your_openai_api_key_here"/"mock_api_key"/g' .github/workflows/test-configs/test-config.json
+          sed -i 's|"./path/to/your/codebase"|"."|g' .github/workflows/test-configs/test-config.json
+          sed -i 's|"custom_problem"|"github_action_test"|g' .github/workflows/test-configs/test-config.json
+          sed -i "s|\"Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.\"|\"${{ github.event.inputs.problem_statement }}\"|g" .github/workflows/test-configs/test-config.json
+      
+      - name: Create mock LLM client for testing
+        run: |
+          mkdir -p .github/workflows/test-configs/mock
+          cat > .github/workflows/test-configs/mock/mock_llm.rs << 'EOF'
+          use anyhow::Result;
+          use async_trait::async_trait;
+          use std::sync::Arc;
+          
+          use crate::config::LLMConfig;
+          use crate::llm::client::{LLMClient, LLMResponse, TokenCost, TokenUsage, set_client_factory};
+          
+          pub struct MockLLMClient;
+          
+          #[async_trait]
+          impl LLMClient for MockLLMClient {
+              async fn completion(&self, _prompt: &str, _max_tokens: usize, _temperature: f64) -> Result<LLMResponse> {
+                  // Return a mock response with file patterns
+                  Ok(LLMResponse {
+                      content: r#"Based on the problem statement and codebase structure, here are the files that are likely relevant:
+          
+          ```json
+          ["src/main.rs", "src/config.rs", "src/models/file.rs"]
+          ```
+          
+          These files appear to be the core components related to the issue."#.to_string(),
+                      usage: TokenUsage {
+                          prompt_tokens: 100,
+                          completion_tokens: 50,
+                          total_tokens: 150,
+                      },
+                  })
+              }
+              
+              fn name(&self) -> &str {
+                  "mock_llm"
+              }
+              
+              fn get_token_prices(&self) -> (f64, f64) {
+                  (0.0, 0.0)
+              }
+              
+              fn calculate_cost(&self, _usage: &TokenUsage) -> TokenCost {
+                  TokenCost {
+                      prompt_cost: 0.0,
+                      completion_cost: 0.0,
+                      total_cost: 0.0,
+                  }
+              }
+          }
+          
+          pub async fn init_mock_client() {
+              set_client_factory(|_config: &LLMConfig| {
+                  Box::pin(async {
+                      Ok(Arc::new(MockLLMClient) as Arc<dyn LLMClient>)
+                  })
+              });
+          }
+          EOF
+      
+      - name: Create mock initialization file
+        run: |
+          cat > .github/workflows/test-configs/mock/init_mock.rs << 'EOF'
+          mod mock_llm;
+          
+          pub async fn init_mocks() {
+              mock_llm::init_mock_client().await;
+          }
+          EOF
+      
+      - name: Create temporary main.rs for testing
+        run: |
+          cp src/main.rs src/main.rs.bak
+          cat > .github/workflows/test-configs/main_patch.rs << 'EOF'
+          // Add this near the top of main.rs, after the imports
+          #[cfg(test)]
+          mod mock;
+          
+          #[tokio::main]
+          async fn main() -> Result<()> {
+              // Initialize the logger
+              env_logger::init();
+          
+              info!("Starting engine-builder. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
+          
+              // Initialize mock clients for GitHub Actions
+              #[cfg(test)]
+              if std::env::var("GITHUB_ACTIONS").is_ok() {
+                  mock::init_mocks().await;
+              }
+          
+              let cli = Cli::parse();
+              // Rest of the main function...
+          EOF
+          
+          # Create the test directory
+          mkdir -p src/test
+          cp .github/workflows/test-configs/mock/mock_llm.rs src/test/mock_llm.rs
+          cp .github/workflows/test-configs/mock/init_mock.rs src/test/mod.rs
+          
+          # We'll use sed to insert the mock initialization code at the right place
+          sed -i '/async fn main() -> Result<()>/i #[cfg(test)]\nmod test;' src/main.rs
+          sed -i '/let cli = Cli::parse();/i // Initialize mock clients for GitHub Actions\n#[cfg(test)]\nif std::env::var("GITHUB_ACTIONS").is_ok() {\n    test::init_mocks().await;\n}' src/main.rs
+      
+      - name: Run file selection
+        run: |
+          RUST_LOG=info cargo run -- -f .github/workflows/test-configs/test-config.json file-selection
+          
+      - name: Restore original main.rs
+        run: |
+          mv src/main.rs.bak src/main.rs
