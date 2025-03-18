@@ -1,11 +1,13 @@
 use anyhow::Result;
 use clap::Parser;
 use engine_builder::config::Config;
+use engine_builder::llm::langfuse;
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::problem::SWEBenchProblem;
 use engine_builder::stages::{container, dockerfile, file_selection, ranking, relevance};
-use log::info;
+use log::{info, warn};
 use colored::Colorize;
+use std::env;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -117,6 +119,48 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let mut config = Config::from_file(cli.config_path.as_deref())?;
+
+    // Initialize Langfuse for observability (from config or environment variables)
+    let langfuse_enabled = config.observability.langfuse.enabled;
+    let langfuse_secret_key = if !config.observability.langfuse.secret_key.is_empty() {
+        config.observability.langfuse.secret_key.clone()
+    } else {
+        env::var("LANGFUSE_SECRET_KEY").unwrap_or_default()
+    };
+    
+    let langfuse_public_key = if !config.observability.langfuse.public_key.is_empty() {
+        config.observability.langfuse.public_key.clone()
+    } else {
+        env::var("LANGFUSE_PUBLIC_KEY").unwrap_or_default()
+    };
+    
+    let langfuse_project_id = if !config.observability.langfuse.project_id.is_empty() {
+        config.observability.langfuse.project_id.clone()
+    } else {
+        env::var("LANGFUSE_PROJECT_ID").unwrap_or_else(|_| "engines-builder".to_string())
+    };
+    
+    let langfuse_host = if !config.observability.langfuse.host.is_empty() {
+        config.observability.langfuse.host.clone()
+    } else {
+        env::var("LANGFUSE_HOST").unwrap_or_else(|_| "https://us.cloud.langfuse.com".to_string())
+    };
+
+    // Initialize Langfuse regardless of whether keys are set - the client will handle the enabled state internally
+    match langfuse::init_langfuse(
+        &langfuse_secret_key,
+        &langfuse_public_key,
+        &langfuse_project_id,
+        Some(&langfuse_host),
+        Some(langfuse_enabled),
+    ) {
+        Ok(_) => {
+            if langfuse_enabled && !langfuse_secret_key.is_empty() && !langfuse_public_key.is_empty() {
+                info!("Langfuse tracing initialized for project: {}", langfuse_project_id);
+            }
+        },
+        Err(e) => warn!("Failed to initialize Langfuse tracing: {}", e),
+    }
 
     // Update codebase path if provided
     if let Some(path) = &cli.codebase_path {

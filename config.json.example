@@ -66,5 +66,14 @@
     "problem_id": "custom_problem",
     "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
     "exclusions_path": "exclusions.json"
+  },
+  "observability": {
+    "langfuse": {
+      "enabled": true,
+      "host": "https://us.cloud.langfuse.com",
+      "project_id": "engines-builder",
+      "secret_key": "key_here",
+      "public_key": "key_here"
+    }
   }
 }

@@ -202,16 +202,35 @@ async fn rank_problem_files(
     let mut total_usage = crate::llm::client::TokenUsage::default();
 
     // Run multiple ranking requests in parallel
+    // Clone problem_id for use in async blocks
+    let problem_id = problem.id.clone();
+
     let mut futures = futures::stream::iter((0..config.num_rankings).map(|i| {
         let client_ref = client;
         let prompt_ref = &prompt;
         let progress_bar_ref = &progress_bar;
+        let problem_id = problem_id.clone();
 
         async move {
             progress_bar_ref.set_message(format!("Running ranking {}", i + 1));
 
+            // Add tracing metadata
+            let metadata = serde_json::json!({
+                "problem_id": problem_id,
+                "stage": "ranking",
+                "ranking_number": i + 1,
+                "temperature": config.temperature,
+            });
+
             let result = client_ref
-                .completion(prompt_ref, config.max_tokens, config.temperature)
+                .completion_with_tracing(
+                    prompt_ref, 
+                    config.max_tokens, 
+                    config.temperature,
+                    None, // Use auto-generated trace ID
+                    Some(&format!("ranking_{}_{}", problem_id, i + 1)),
+                    Some(metadata),
+                )
                 .await
                 .context(format!("Failed to get completion for ranking {}", i + 1));
 
@@ -338,10 +357,10 @@ async fn rank_problem_files(
 
     trajectory_store.save_ranking(context).context(format!(
         "Failed to save ranking for problem: {}",
-        problem.id
+        problem_id
     ))?;
 
-    info!("Ranking completed for problem: {}", problem.id);
+    info!("Ranking completed for problem: {}", problem_id);
     Ok(total_usage)
 }
 

@@ -157,6 +157,7 @@ async fn assess_file_relevance(
     client: &dyn LLMClient,
     config: &RelevanceConfig,
     trajectory_store: &TrajectoryStore,
+    trace_id: Option<&str>,
 ) -> Result<crate::llm::client::TokenUsage> {
     // Check if we already have a relevance decision for this file
     if trajectory_store.relevance_decision_exists(file_path) {
@@ -174,9 +175,24 @@ async fn assess_file_relevance(
     // Generate the prompt
     let prompt = get_relevance_user_prompt(problem, file_path, file_content);
 
-    // Send the request to the LLM
+    // Add tracing metadata
+    let metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "file_path": file_path,
+        "stage": "relevance",
+        "token_count": token_count,
+    });
+
+    // Send the request to the LLM with tracing
     let llm_response = client
-        .completion(&prompt, config.max_tokens, 0.0)
+        .completion_with_tracing(
+            &prompt, 
+            config.max_tokens, 
+            0.0,
+            trace_id,
+            Some(&format!("relevance_{}", file_path.replace("/", "_"))),
+            Some(metadata),
+        )
         .await
         .context(format!("Failed to get completion for file: {}", file_path))?;
 
@@ -204,6 +220,33 @@ pub async fn process_codebase(
     problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting relevance assessment");
+    
+    // Set up Langfuse trace for the entire relevance stage
+    let trace_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "relevance",
+        "max_workers": config.max_workers,
+        "max_tokens": config.max_tokens,
+        "model_type": config.llm.model_type,
+        "model": config.llm.model,
+    });
+    
+    // Create a new trace
+    let trace_id = match crate::llm::langfuse::get_tracer() {
+        Ok(tracer) => {
+            match tracer.create_trace(&format!("relevance_{}", problem.id), Some(trace_metadata)).await {
+                Ok(id) => {
+                    debug!("Created Langfuse trace for relevance: {}", id);
+                    Some(id)
+                },
+                Err(e) => {
+                    warn!("Failed to create Langfuse trace: {}", e);
+                    None
+                },
+            }
+        },
+        Err(_) => None,
+    };
 
     // Create the LLM client
     let client = create_client(&config.llm)
@@ -308,6 +351,9 @@ pub async fn process_codebase(
     }
 
     // Create a fixed-size buffer of futures to limit concurrency
+    // Clone trace_id for use in async blocks
+    let trace_id_for_async = trace_id.clone();
+    
     let futures =
         futures::stream::iter(file_contents.into_iter().map(|(file_path, file_content)| {
             let file_path_clone = file_path.clone();
@@ -316,6 +362,7 @@ pub async fn process_codebase(
             let trajectory_store_ref = &trajectory_store;
             let problem_ref = &configured_problem;
             let progress_bar_ref = &progress_bar;
+            let trace_id_local = trace_id_for_async.clone();
 
             async move {
                 if file_content.is_empty() {
@@ -331,6 +378,7 @@ pub async fn process_codebase(
                     client_ref,
                     config_ref,
                     trajectory_store_ref,
+                    trace_id_local.as_deref(),
                 )
                 .await;
 
