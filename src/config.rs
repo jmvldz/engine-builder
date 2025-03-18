@@ -168,6 +168,9 @@ pub struct LangfuseConfig {
     pub project_id: String,
     pub secret_key: String,
     pub public_key: String,
+    /// Optional trace ID for consistent tracing across runs.
+    /// If not provided, the problem_id from CodebaseConfig will be used.
+    /// This ensures all traces for the same problem are grouped together.
     pub trace_id: Option<String>,
 }
 
@@ -189,12 +192,18 @@ impl Config {
         let path = path.unwrap_or("config.json");
         let file = File::open(path).context(format!("Failed to open config file: {}", path))?;
         let reader = BufReader::new(file);
-        let config = serde_json::from_reader(reader).context("Failed to parse config file")?;
+        let mut config: Self = serde_json::from_reader(reader).context("Failed to parse config file")?;
+        
+        // If trace_id is not set, use the problem_id as the trace_id
+        if config.observability.langfuse.trace_id.is_none() {
+            config.observability.langfuse.trace_id = Some(config.codebase.problem_id.clone());
+        }
+        
         Ok(config)
     }
 
     pub fn default() -> Self {
-        Self {
+        let mut config = Self {
             relevance: RelevanceConfig {
                 llm: LLMConfig {
                     model_type: "anthropic".to_string(),
@@ -235,6 +244,11 @@ impl Config {
             scripts: ScriptConfig::default(),
             container: ContainerConfig::default(),
             observability: ObservabilityConfig::default(),
-        }
+        };
+        
+        // Set the trace_id based on the problem_id
+        config.observability.langfuse.trace_id = Some(config.codebase.problem_id.clone());
+        
+        config
     }
 }
