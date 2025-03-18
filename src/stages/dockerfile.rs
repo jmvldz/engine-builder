@@ -99,8 +99,23 @@ pub async fn generate_dockerfile(
         .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
     info!("Dockerfile prompt saved to {:?}", prompt_path);
 
+    // Add tracing metadata
+    let metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "dockerfile_generation",
+        "temperature": config.temperature,
+        "num_files": ranked_files.len(),
+    });
+
     let response = client
-        .completion(&combined_prompt, config.max_tokens, config.temperature)
+        .completion_with_tracing(
+            &combined_prompt,
+            config.max_tokens,
+            config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("dockerfile_{}", problem.id)),
+            Some(metadata),
+        )
         .await
         .context("Failed to generate test-focused Dockerfile")?;
 
@@ -256,8 +271,24 @@ pub async fn update_dockerfile_from_error(
     info!("Dockerfile error prompt saved to {:?}", prompt_path);
 
     info!("Asking LLM for Dockerfile fixes...");
+    
+    // Add tracing metadata
+    let metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "dockerfile_error_fix",
+        "temperature": config.temperature,
+        "error_length": error_message.len(),
+    });
+
     let response = client
-        .completion(&combined_prompt, config.max_tokens, config.temperature)
+        .completion_with_tracing(
+            &combined_prompt,
+            config.max_tokens,
+            config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("dockerfile_error_fix_{}", problem.id)),
+            Some(metadata),
+        )
         .await
         .context("Failed to get Dockerfile fix suggestions")?;
 
@@ -380,8 +411,23 @@ pub async fn generate_dockerfile_from_relevance(
         .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
     info!("Dockerfile prompt saved to {:?}", prompt_path);
 
+    // Add tracing metadata
+    let metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "dockerfile_from_relevance",
+        "temperature": 0.0,
+        "num_files": relevant_files.len(),
+    });
+
     let response = client
-        .completion(&combined_prompt, config.max_tokens, 0.0)
+        .completion_with_tracing(
+            &combined_prompt,
+            config.max_tokens,
+            0.0,
+            None, // Auto-generate trace ID
+            Some(&format!("dockerfile_from_relevance_{}", problem.id)),
+            Some(metadata),
+        )
         .await
         .context("Failed to generate test-focused Dockerfile")?;
 

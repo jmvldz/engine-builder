@@ -83,6 +83,89 @@ pub trait LLMClient: Send + Sync {
         max_tokens: usize,
         temperature: f64,
     ) -> Result<LLMResponse>;
+    
+    /// Generate a completion with Langfuse tracing
+    async fn completion_with_tracing(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f64,
+        trace_id: Option<&str>,
+        generation_name: Option<&str>,
+        metadata: Option<serde_json::Value>,
+    ) -> Result<LLMResponse> {
+        use crate::llm::langfuse;
+        use std::time::{Instant, SystemTime, UNIX_EPOCH};
+        
+        // Get the current timestamp in milliseconds
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+            
+        // Record start time for duration measurement - currently calculated using SystemTime instead
+        let _instant_start = Instant::now();
+        
+        // Create a new trace if one wasn't provided
+        let (_owned_trace_id, trace_id_str) = match trace_id {
+            Some(id) => (None, id.to_string()),
+            None => {
+                // Create a new trace for this completion
+                let trace_name = generation_name.unwrap_or("llm_completion");
+                match langfuse::get_tracer() {
+                    Ok(tracer) => {
+                        match tracer.create_trace(trace_name, metadata.clone()).await {
+                            Ok(id) => {
+                                let id_str = id.clone();
+                                (Some(id), id_str)
+                            },
+                            Err(_) => (None, String::new()),
+                        }
+                    },
+                    Err(_) => (None, String::new()),
+                }
+            }
+        };
+        
+        // Call the regular completion method
+        let result = self.completion(prompt, max_tokens, temperature).await;
+        
+        // Get the end timestamp
+        let end_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+            
+        // Log to Langfuse if enabled and we have a valid trace ID
+        if !trace_id_str.is_empty() {
+            if let Ok(response) = &result {
+                if let Ok(tracer) = langfuse::get_tracer() {
+                    let gen_name = generation_name.unwrap_or("llm_generation");
+                    let cost = self.calculate_cost(&response.usage);
+                    
+                    // Create JSON for prompt and completion
+                    let input_json = serde_json::json!(prompt);
+                    let output_json = serde_json::json!(response.content);
+                    
+                    // Log the generation
+                    let _ = tracer.log_generation(
+                        &trace_id_str,
+                        gen_name,
+                        self.name(),
+                        &serde_json::to_string(&input_json).unwrap_or_else(|_| prompt.to_string()),
+                        &serde_json::to_string(&output_json).unwrap_or_else(|_| response.content.clone()),
+                        &response.usage,
+                        Some(&cost),
+                        metadata,
+                        Some(start_time),
+                        Some(end_time),
+                    ).await;
+                }
+            }
+        }
+        
+        result
+    }
 
     /// Get the name of the LLM client
     fn name(&self) -> &str {
@@ -178,6 +261,25 @@ pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
                 
                 async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<LLMResponse> {
                     self.inner.completion(prompt, max_tokens, temperature).await
+                }
+                
+                async fn completion_with_tracing(
+                    &self,
+                    prompt: &str,
+                    max_tokens: usize,
+                    temperature: f64,
+                    trace_id: Option<&str>,
+                    generation_name: Option<&str>,
+                    metadata: Option<serde_json::Value>,
+                ) -> Result<LLMResponse> {
+                    self.inner.completion_with_tracing(
+                        prompt,
+                        max_tokens,
+                        temperature,
+                        trace_id,
+                        generation_name,
+                        metadata,
+                    ).await
                 }
                 
                 async fn fetch_pricing_data(&self) -> Result<()> {

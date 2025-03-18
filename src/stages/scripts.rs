@@ -150,8 +150,23 @@ pub async fn generate_scripts(
         SETUP_SCRIPT_SYSTEM_PROMPT, setup_prompt
     );
 
+    // Add tracing metadata for setup script
+    let setup_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "setup_script_generation",
+        "temperature": script_config.temperature,
+        "num_files": formatted_files.len(),
+    });
+
     let setup_response = client
-        .completion(&combined_setup_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_setup_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("setup_script_{}", problem.id)),
+            Some(setup_metadata),
+        )
         .await
         .context("Failed to generate setup script")?;
 
@@ -200,8 +215,23 @@ pub async fn generate_scripts(
         LINT_SCRIPT_SYSTEM_PROMPT, lint_prompt
     );
 
+    // Add tracing metadata for lint script
+    let lint_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "lint_script_generation",
+        "temperature": script_config.temperature,
+        "num_files": formatted_files.len(),
+    });
+
     let lint_response = client
-        .completion(&combined_lint_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_lint_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("lint_script_{}", problem.id)),
+            Some(lint_metadata),
+        )
         .await
         .context("Failed to generate lint script")?;
 
@@ -244,8 +274,23 @@ pub async fn generate_scripts(
         TEST_SCRIPT_SYSTEM_PROMPT, test_prompt
     );
 
+    // Add tracing metadata for test script
+    let test_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "test_script_generation",
+        "temperature": script_config.temperature,
+        "num_files": formatted_files.len(),
+    });
+
     let test_response = client
-        .completion(&combined_test_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_test_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("test_script_{}", problem.id)),
+            Some(test_metadata),
+        )
         .await
         .context("Failed to generate test script")?;
 
@@ -379,8 +424,23 @@ pub async fn generate_scripts_from_ranking(
         SETUP_SCRIPT_SYSTEM_PROMPT, setup_prompt
     );
 
+    // Add tracing metadata for setup script
+    let setup_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "setup_script_from_ranking",
+        "temperature": script_config.temperature,
+        "num_files": ranked_files.len(),
+    });
+
     let setup_response = client
-        .completion(&combined_setup_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_setup_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("setup_script_ranking_{}", problem.id)),
+            Some(setup_metadata),
+        )
         .await
         .context("Failed to generate setup script")?;
 
@@ -429,8 +489,23 @@ pub async fn generate_scripts_from_ranking(
         LINT_SCRIPT_SYSTEM_PROMPT, lint_prompt
     );
 
+    // Add tracing metadata for lint script
+    let lint_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "lint_script_from_ranking",
+        "temperature": script_config.temperature,
+        "num_files": ranked_files.len(),
+    });
+
     let lint_response = client
-        .completion(&combined_lint_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_lint_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("lint_script_ranking_{}", problem.id)),
+            Some(lint_metadata),
+        )
         .await
         .context("Failed to generate lint script")?;
 
@@ -473,8 +548,23 @@ pub async fn generate_scripts_from_ranking(
         TEST_SCRIPT_SYSTEM_PROMPT, test_prompt
     );
 
+    // Add tracing metadata for test script
+    let test_metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "test_script_from_ranking",
+        "temperature": script_config.temperature,
+        "num_files": ranked_files.len(),
+    });
+
     let test_response = client
-        .completion(&combined_test_prompt, script_config.max_tokens, script_config.temperature)
+        .completion_with_tracing(
+            &combined_test_prompt,
+            script_config.max_tokens,
+            script_config.temperature,
+            None, // Auto-generate trace ID
+            Some(&format!("test_script_ranking_{}", problem.id)),
+            Some(test_metadata),
+        )
         .await
         .context("Failed to generate test script")?;
 

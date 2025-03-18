@@ -15,6 +15,8 @@ pub struct Config {
     pub scripts: ScriptConfig,
     #[serde(default)]
     pub container: ContainerConfig,
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +144,44 @@ impl Default for ContainerConfig {
     }
 }
 
+/// Configuration for observability and tracing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ObservabilityConfig {
+    pub langfuse: LangfuseConfig,
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            langfuse: LangfuseConfig::default(),
+        }
+    }
+}
+
+/// Configuration for Langfuse tracing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LangfuseConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub project_id: String,
+    pub secret_key: String,
+    pub public_key: String,
+}
+
+impl Default for LangfuseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "https://us.cloud.langfuse.com".to_string(),
+            project_id: "engines-builder".to_string(),
+            secret_key: "".to_string(),
+            public_key: "".to_string(),
+        }
+    }
+}
+
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
         let path = path.unwrap_or("config.json");
@@ -192,6 +232,7 @@ impl Config {
             dockerfile: DockerfileConfig::default(),
             scripts: ScriptConfig::default(),
             container: ContainerConfig::default(),
+            observability: ObservabilityConfig::default(),
         }
     }
 }

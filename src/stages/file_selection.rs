@@ -170,8 +170,23 @@ pub async fn run_file_selection(
 
     info!("Saved prompt to: {:?}", prompt_path);
 
+    // Add tracing metadata
+    let metadata = serde_json::json!({
+        "problem_id": problem.id,
+        "stage": "file_selection",
+        "temperature": 0.0,
+        "files_count": all_files.len(),
+    });
+
     let llm_response = client
-        .completion(&tree_prompt, config.max_tokens, 0.0)
+        .completion_with_tracing(
+            &tree_prompt,
+            config.max_tokens,
+            0.0,
+            None, // Auto-generate trace ID
+            Some(&format!("file_selection_{}", problem.id)),
+            Some(metadata),
+        )
         .await
         .context("Failed to get file selection from LLM")?;
 
