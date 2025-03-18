@@ -1,18 +1,12 @@
 use anyhow::{Context, Result};
-use std::io::{self, Write};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode},
-    ExecutableCommand,
-    cursor,
-    style::{Color, SetForegroundColor, Print, ResetColor},
-};
+use std::io;
 use tokio::sync::mpsc;
 use crate::config::{Config, LLMConfig};
 use crate::models::problem::SWEBenchProblem;
 use crate::llm::client::create_client;
 
 pub mod tools;
+pub mod ui;
 
 /// Structure for chat messages
 #[derive(Debug, Clone)]
@@ -52,12 +46,11 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
         .await
         .context("Failed to create LLM client")?;
     
-    println!("Starting chat with {}/{}", &config.llm_config.model_type, &config.llm_config.model);
-    println!("Type 'exit' or press Ctrl+C to end the session");
-    println!("For a list of available commands, type 'help'");
+    log::info!("Starting chat with {}/{}", &config.llm_config.model_type, &config.llm_config.model);
     
-    // Create channel for passing user input to the chat loop
-    let (tx, mut rx) = mpsc::channel::<String>(10);
+    // Create channels for communication between UI and chat processing
+    let (ui_tx, ui_rx) = mpsc::channel::<ChatMessage>(100);
+    let (input_tx, mut input_rx) = mpsc::channel::<String>(10);
     
     // Load the application config for tool execution
     let app_config = Config::from_file(None).unwrap_or_else(|_| Config::default());
@@ -69,57 +62,67 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
     )
     .with_codebase_path(&app_config.codebase.path);
     
-    // Spawn a separate task for handling user input
-    let input_handle = tokio::spawn(async move {
-        loop {
-            match get_user_input_with_box("You: ") {
-                Ok(input) => {
-                    if tx.send(input.clone()).await.is_err() {
-                        break;
-                    }
-                    
-                    if input.trim().eq_ignore_ascii_case("exit") {
-                        break;
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error reading input: {}", e);
-                    break;
-                }
-            }
-        }
-    });
-    
     // Keep track of the conversation history
     let mut history = Vec::new();
     
     // Add initial system message
-    history.push(ChatMessage {
+    let system_message = ChatMessage {
         role: "system".to_string(),
         content: create_system_prompt(),
-    });
+    };
+    
+    history.push(system_message.clone());
+    
+    // Send welcome message to UI
+    let welcome_message = ChatMessage {
+        role: "assistant".to_string(),
+        content: format!(
+            "Welcome to the Engine Builder Chat Interface!\n\nI'm using the {} model.\n\nHow can I help you today? Type 'help' for available commands.",
+            &config.llm_config.model
+        ),
+    };
+    
+    let _ = ui_tx.send(welcome_message.clone()).await;
+    history.push(welcome_message);
+    
+    // Spawn UI task
+    let ui_handle = tokio::spawn(ui::run_chat_ui(ui_rx, input_tx));
     
     // Main chat loop
-    while let Some(input) = rx.recv().await {
+    while let Some(input) = input_rx.recv().await {
         if input.trim().eq_ignore_ascii_case("exit") {
             break;
         }
         
         // Add user message to history
-        history.push(ChatMessage {
+        let user_message = ChatMessage {
             role: "user".to_string(),
             content: input.clone(),
-        });
+        };
+        history.push(user_message);
         
         // Handle built-in commands
         if input.trim().eq_ignore_ascii_case("help") {
-            print_help();
-            history.push(ChatMessage {
+            let help_message = ChatMessage {
                 role: "assistant".to_string(),
-                content: "I've displayed the help information above.".to_string(),
-            });
+                content: "Available Tools:\n".to_string() + 
+                    &tools::get_tools().iter()
+                        .map(|t| format!("- {} - {}", t.name, t.description))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+            };
+            
+            let _ = ui_tx.send(help_message.clone()).await;
+            history.push(help_message);
             continue;
         }
+        
+        // Create "thinking" message
+        let thinking_message = ChatMessage {
+            role: "assistant".to_string(),
+            content: "Thinking...".to_string(),
+        };
+        let _ = ui_tx.send(thinking_message).await;
         
         // Create prompt from history
         let prompt = create_prompt(&history);
@@ -130,60 +133,67 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                 // Check if the response contains a tool call
                 if let Some((tool_name, params)) = tools::parse_tool_call(&response.content) {
                     // Execute the tool
-                    print_assistant_message(&format!("I'll run the '{}' command for you...", tool_name));
+                    let tool_call_message = ChatMessage {
+                        role: "assistant".to_string(),
+                        content: format!("I'll run the '{}' command for you...", tool_name),
+                    };
+                    let _ = ui_tx.send(tool_call_message.clone()).await;
+                    history.push(tool_call_message);
                     
                     match tools::execute_tool(&tool_name, &params, &app_config, &problem).await {
                         Ok(result) => {
-                            // Print the tool result
-                            if result.success {
-                                print_tool_success(&result.output);
-                            } else {
-                                print_tool_error(&result.output);
-                            }
-                            
-                            // Add the tool call and result to the history
-                            history.push(ChatMessage {
+                            // Create tool result message
+                            let result_message = ChatMessage {
                                 role: "assistant".to_string(),
                                 content: format!(
-                                    "I'll run the '{}' command for you.\n\nResult: {}",
-                                    tool_name,
+                                    "Result: {} - {}",
+                                    if result.success { "SUCCESS" } else { "FAILED" },
                                     result.output
                                 ),
-                            });
+                            };
+                            
+                            let _ = ui_tx.send(result_message.clone()).await;
+                            history.push(result_message);
                         }
                         Err(e) => {
-                            print_tool_error(&format!("Error executing tool: {}", e));
-                            
-                            history.push(ChatMessage {
+                            // Create error message
+                            let error_message = ChatMessage {
                                 role: "assistant".to_string(),
-                                content: format!(
-                                    "I tried to run the '{}' command but encountered an error: {}",
-                                    tool_name, e
-                                ),
-                            });
+                                content: format!("Error executing tool: {}", e),
+                            };
+                            
+                            let _ = ui_tx.send(error_message.clone()).await;
+                            history.push(error_message);
                         }
                     }
                 } else {
                     // Regular response
-                    print_assistant_message(&response.content);
-                    
-                    // Add assistant response to history
-                    history.push(ChatMessage {
+                    let response_message = ChatMessage {
                         role: "assistant".to_string(),
                         content: response.content.clone(),
-                    });
+                    };
+                    
+                    let _ = ui_tx.send(response_message.clone()).await;
+                    history.push(response_message);
                 }
             },
             Err(e) => {
-                eprintln!("Error getting response: {}", e);
+                // Send error message
+                let error_message = ChatMessage {
+                    role: "assistant".to_string(),
+                    content: format!("Error getting response: {}", e),
+                };
+                
+                let _ = ui_tx.send(error_message.clone()).await;
+                history.push(error_message);
             }
         }
     }
     
-    // Wait for the input handling task to complete
-    let _ = input_handle.await;
+    // Abort UI task when chat ends
+    ui_handle.abort();
     
-    println!("Chat session ended.");
+    log::info!("Chat session ended");
     Ok(())
 }
 
@@ -220,21 +230,6 @@ fn create_system_prompt() -> String {
     prompt
 }
 
-/// Print available commands
-fn print_help() {
-    println!("\n--- Available Commands ---");
-    println!("help    - Show this help message");
-    println!("exit    - End the chat session");
-    println!("");
-    println!("--- Available Tools ---");
-    
-    for tool in tools::get_tools() {
-        println!("{} - {}", tool.name, tool.description);
-    }
-    
-    println!("-------------------------\n");
-}
-
 /// Create a prompt from the conversation history
 fn create_prompt(history: &[ChatMessage]) -> String {
     // This implementation works for both Anthropic and OpenAI models
@@ -260,125 +255,4 @@ fn create_prompt(history: &[ChatMessage]) -> String {
     prompt.push_str("Assistant: ");
     
     prompt
-}
-
-/// Display the assistant's message with formatting
-fn print_assistant_message(message: &str) {
-    let mut stdout = io::stdout();
-    let _ = stdout.execute(SetForegroundColor(Color::Cyan));
-    println!("\nAssistant:");
-    let _ = stdout.execute(ResetColor);
-    println!("{}\n", message);
-    let _ = stdout.flush();
-}
-
-/// Display a tool success message
-fn print_tool_success(message: &str) {
-    let mut stdout = io::stdout();
-    let _ = stdout.execute(SetForegroundColor(Color::Green));
-    println!("\n✓ Success:");
-    let _ = stdout.execute(ResetColor);
-    println!("{}\n", message);
-    let _ = stdout.flush();
-}
-
-/// Display a tool error message
-fn print_tool_error(message: &str) {
-    let mut stdout = io::stdout();
-    let _ = stdout.execute(SetForegroundColor(Color::Red));
-    println!("\n✗ Error:");
-    let _ = stdout.execute(ResetColor);
-    println!("{}\n", message);
-    let _ = stdout.flush();
-}
-
-/// Get user input with a nice box around it
-fn get_user_input_with_box(prompt: &str) -> Result<String> {
-    let mut stdout = io::stdout();
-    let mut input = String::new();
-    let min_width = 80;
-    
-    // Enable raw mode for better control over terminal
-    enable_raw_mode()?;
-    
-    // Print the box top
-    stdout.execute(Print("\n┌"))?;
-    for _ in 0..min_width {
-        stdout.execute(Print("─"))?;
-    }
-    stdout.execute(Print("┐\n"))?;
-    
-    // Print the prompt line (with prompt)
-    stdout.execute(Print("│ "))?;
-    stdout.execute(SetForegroundColor(Color::Green))?;
-    stdout.execute(Print(prompt))?;
-    stdout.execute(ResetColor)?;
-    
-    // Initialize cursor position after prompt
-    let prompt_len = prompt.len();
-    
-    // Event handling loop
-    loop {
-        // Clear line after the prompt
-        stdout.execute(cursor::SavePosition)?;
-        
-        // Calculate the remaining space
-        let remaining_space = min_width - (prompt_len + input.len() + 3); // +3 for "│ " and "│" at end
-        
-        // Print input and padding
-        stdout.execute(Print(&input))?;
-        for _ in 0..remaining_space {
-            stdout.execute(Print(" "))?;
-        }
-        stdout.execute(Print("│"))?;
-        
-        // Restore cursor position to continue editing
-        stdout.execute(cursor::RestorePosition)?;
-        stdout.execute(cursor::MoveRight(input.len() as u16))?;
-        stdout.flush()?;
-        
-        // Handle keyboard input
-        if let Event::Key(key_event) = event::read()? {
-            if key_event.kind == KeyEventKind::Press {
-                match key_event.code {
-                    KeyCode::Enter => {
-                        break;
-                    }
-                    KeyCode::Char(c) => {
-                        input.push(c);
-                        // Print the character
-                        stdout.execute(Print(c.to_string()))?;
-                    }
-                    KeyCode::Backspace => {
-                        if !input.is_empty() {
-                            input.pop();
-                            // Move left, print space, move left again to erase
-                            stdout.execute(cursor::MoveLeft(1))?;
-                            stdout.execute(Print(" "))?;
-                            stdout.execute(cursor::MoveLeft(1))?;
-                        }
-                    }
-                    KeyCode::Esc => {
-                        input = "exit".to_string();
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    
-    // Print the box bottom
-    stdout.execute(cursor::MoveToColumn(0))?;
-    stdout.execute(cursor::MoveDown(1))?;
-    stdout.execute(Print("└"))?;
-    for _ in 0..min_width {
-        stdout.execute(Print("─"))?;
-    }
-    stdout.execute(Print("┘\n"))?;
-    
-    // Disable raw mode to return to normal terminal behavior
-    disable_raw_mode()?;
-    
-    Ok(input)
 }
