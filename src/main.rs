@@ -153,6 +153,7 @@ async fn main() -> Result<()> {
         &langfuse_project_id,
         Some(&langfuse_host),
         Some(langfuse_enabled),
+        config.observability.langfuse.trace_id.as_deref(),
     ) {
         Ok(_) => {
             if langfuse_enabled && !langfuse_secret_key.is_empty() && !langfuse_public_key.is_empty() {
