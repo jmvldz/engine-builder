@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use std::io;
 use tokio::sync::mpsc;
 use crate::config::{Config, LLMConfig};
 use crate::models::problem::SWEBenchProblem;
@@ -82,11 +81,20 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
         ),
     };
     
-    let _ = ui_tx.send(welcome_message.clone()).await;
-    history.push(welcome_message);
+    // Spawn UI task properly with correct awaiting structure
+    let ui_handle = tokio::task::spawn(async move {
+        if let Err(e) = ui::run_chat_ui(ui_rx, input_tx).await {
+            log::error!("UI task exited with error: {}", e);
+        }
+    });
     
-    // Spawn UI task
-    let ui_handle = tokio::spawn(ui::run_chat_ui(ui_rx, input_tx));
+    // Allow UI time to initialize before sending welcome message
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
+    if let Err(e) = ui_tx.send(welcome_message.clone()).await {
+        log::error!("Failed to send welcome message: {}", e);
+    }
+    history.push(welcome_message);
     
     // Main chat loop
     while let Some(input) = input_rx.recv().await {
@@ -112,7 +120,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                         .join("\n"),
             };
             
-            let _ = ui_tx.send(help_message.clone()).await;
+            if let Err(e) = ui_tx.send(help_message.clone()).await {
+                log::error!("Failed to send help message: {}", e);
+            }
             history.push(help_message);
             continue;
         }
@@ -122,7 +132,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
             role: "assistant".to_string(),
             content: "Thinking...".to_string(),
         };
-        let _ = ui_tx.send(thinking_message).await;
+        if let Err(e) = ui_tx.send(thinking_message).await {
+            log::error!("Failed to send thinking message: {}", e);
+        }
         
         // Create prompt from history
         let prompt = create_prompt(&history);
@@ -137,7 +149,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                         role: "assistant".to_string(),
                         content: format!("I'll run the '{}' command for you...", tool_name),
                     };
-                    let _ = ui_tx.send(tool_call_message.clone()).await;
+                    if let Err(e) = ui_tx.send(tool_call_message.clone()).await {
+                        log::error!("Failed to send tool call message: {}", e);
+                    }
                     history.push(tool_call_message);
                     
                     match tools::execute_tool(&tool_name, &params, &app_config, &problem).await {
@@ -152,7 +166,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                                 ),
                             };
                             
-                            let _ = ui_tx.send(result_message.clone()).await;
+                            if let Err(e) = ui_tx.send(result_message.clone()).await {
+                                log::error!("Failed to send result message: {}", e);
+                            }
                             history.push(result_message);
                         }
                         Err(e) => {
@@ -162,7 +178,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                                 content: format!("Error executing tool: {}", e),
                             };
                             
-                            let _ = ui_tx.send(error_message.clone()).await;
+                            if let Err(e) = ui_tx.send(error_message.clone()).await {
+                                log::error!("Failed to send error message: {}", e);
+                            }
                             history.push(error_message);
                         }
                     }
@@ -173,7 +191,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                         content: response.content.clone(),
                     };
                     
-                    let _ = ui_tx.send(response_message.clone()).await;
+                    if let Err(e) = ui_tx.send(response_message.clone()).await {
+                        log::error!("Failed to send response message: {}", e);
+                    }
                     history.push(response_message);
                 }
             },
@@ -184,7 +204,9 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
                     content: format!("Error getting response: {}", e),
                 };
                 
-                let _ = ui_tx.send(error_message.clone()).await;
+                if let Err(e) = ui_tx.send(error_message.clone()).await {
+                    log::error!("Failed to send LLM error message: {}", e);
+                }
                 history.push(error_message);
             }
         }
