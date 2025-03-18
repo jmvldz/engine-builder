@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use log;
+use log::{self, debug};
 use std::fmt;
 use std::sync::{Arc, Once};
 
@@ -110,16 +110,32 @@ pub trait LLMClient: Send + Sync {
         let (_owned_trace_id, trace_id_str) = match trace_id {
             Some(id) => (None, id.to_string()),
             None => {
+                // Check if metadata contains problem_id to use as trace_id
+                let problem_id = if let Some(meta) = &metadata {
+                    meta.get("problem_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                };
+                
                 // Create a new trace for this completion
                 let trace_name = generation_name.unwrap_or("llm_completion");
                 match langfuse::get_tracer() {
                     Ok(tracer) => {
-                        match tracer.create_trace(trace_name, metadata.clone()).await {
-                            Ok(id) => {
-                                let id_str = id.clone();
-                                (Some(id), id_str)
-                            },
-                            Err(_) => (None, String::new()),
+                        // If we have a problem_id, use it as the trace_id
+                        if let Some(id) = problem_id {
+                            debug!("Using problem_id as trace_id: {}", id);
+                            (None, id)
+                        } else {
+                            // Otherwise create a new trace
+                            match tracer.create_trace(trace_name, metadata.clone()).await {
+                                Ok(id) => {
+                                    let id_str = id.clone();
+                                    (Some(id), id_str)
+                                },
+                                Err(_) => (None, String::new()),
+                            }
                         }
                     },
                     Err(_) => (None, String::new()),

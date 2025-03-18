@@ -178,7 +178,18 @@ impl LangfuseClient {
             return Ok(Uuid::new_v4().to_string());
         }
 
-        let trace_id = Uuid::new_v4().to_string();
+        // Check if metadata contains problem_id to use as trace_id
+        let trace_id = if let Some(meta) = &metadata {
+            if let Some(problem_id) = meta.get("problem_id").and_then(|v| v.as_str()) {
+                debug!("Using problem_id as trace_id: {}", problem_id);
+                problem_id.to_string()
+            } else {
+                Uuid::new_v4().to_string()
+            }
+        } else {
+            Uuid::new_v4().to_string()
+        };
+        
         let event_id = Uuid::new_v4().to_string();
         let timestamp = Self::current_timestamp();
 
