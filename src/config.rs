@@ -168,6 +168,7 @@ pub struct LangfuseConfig {
     pub project_id: String,
     pub secret_key: String,
     pub public_key: String,
+    pub trace_id: Option<String>,
 }
 
 impl Default for LangfuseConfig {
@@ -178,6 +179,7 @@ impl Default for LangfuseConfig {
             project_id: "engines-builder".to_string(),
             secret_key: "".to_string(),
             public_key: "".to_string(),
+            trace_id: None,
         }
     }
 }

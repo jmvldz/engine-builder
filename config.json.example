@@ -73,7 +73,8 @@
       "host": "https://us.cloud.langfuse.com",
       "project_id": "engines-builder",
       "secret_key": "key_here",
-      "public_key": "key_here"
+      "public_key": "key_here",
+      "trace_id": null
     }
   }
 }

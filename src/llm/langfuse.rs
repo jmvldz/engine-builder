@@ -58,6 +58,7 @@ pub struct LangfuseClient {
     secret_key: String,
     public_key: String,
     enabled: bool,
+    pub trace_id: Option<String>,
 }
 
 impl Default for LangfuseClient {
@@ -68,6 +69,7 @@ impl Default for LangfuseClient {
             secret_key: String::new(),
             public_key: String::new(),
             enabled: false,
+            trace_id: None,
         }
     }
 }
@@ -80,6 +82,7 @@ impl LangfuseClient {
         public_key: Option<String>,
         project_id: Option<String>,
         enabled: Option<bool>,
+        trace_id: Option<String>,
     ) -> Result<Self> {
         // Try environment variables if not provided directly
         let secret_key = secret_key
@@ -126,6 +129,7 @@ impl LangfuseClient {
             secret_key,
             public_key,
             enabled,
+            trace_id,
         })
     }
 
@@ -136,6 +140,7 @@ impl LangfuseClient {
         project_id: &str,
         base_url: Option<&str>,
         enabled: Option<bool>,
+        trace_id: Option<&str>,
     ) -> Result<Self> {
         Self::new(
             base_url.map(|s| s.to_string()),
@@ -143,6 +148,7 @@ impl LangfuseClient {
             Some(public_key.to_string()),
             Some(project_id.to_string()),
             enabled,
+            trace_id.map(|s| s.to_string()),
         )
     }
 
@@ -175,10 +181,10 @@ impl LangfuseClient {
         metadata: Option<serde_json::Value>,
     ) -> Result<String> {
         if !self.enabled {
-            return Ok(Uuid::new_v4().to_string());
+            return Ok(self.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()));
         }
 
-        let trace_id = Uuid::new_v4().to_string();
+        let trace_id = self.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
         let event_id = Uuid::new_v4().to_string();
         let timestamp = Self::current_timestamp();
 
@@ -426,7 +432,7 @@ pub struct LangfuseTracer {
 impl LangfuseTracer {
     // Create a new Langfuse tracer
     pub fn new() -> Result<Self> {
-        let client = LangfuseClient::new(None, None, None, None, None)?;
+        let client = LangfuseClient::new(None, None, None, None, None, None)?;
         Ok(Self {
             client: Arc::new(client),
         })
@@ -439,6 +445,7 @@ impl LangfuseTracer {
         project_id: &str,
         base_url: Option<&str>,
         enabled: Option<bool>,
+        trace_id: Option<&str>,
     ) -> Result<Self> {
         let client = LangfuseClient::with_credentials(
             secret_key,
@@ -446,6 +453,7 @@ impl LangfuseTracer {
             project_id,
             base_url,
             enabled,
+            trace_id,
         )?;
         
         Ok(Self {
@@ -470,6 +478,7 @@ pub fn init_langfuse(
     project_id: &str,
     base_url: Option<&str>,
     enabled: Option<bool>,
+    trace_id: Option<&str>,
 ) -> Result<()> {
     let tracer = LangfuseTracer::with_credentials(
         secret_key,
@@ -477,6 +486,7 @@ pub fn init_langfuse(
         project_id,
         base_url,
         enabled,
+        trace_id,
     )?;
     
     // Set the global tracer
