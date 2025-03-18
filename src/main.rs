@@ -74,6 +74,16 @@ enum Command {
         #[arg(short, long)]
         parallel: bool,
     },
+    /// Start an interactive chat with the configured LLM
+    Chat {
+        /// LLM model type (openai or anthropic)
+        #[arg(short, long)]
+        model_type: Option<String>,
+        
+        /// LLM model name
+        #[arg(short, long)]
+        model: Option<String>,
+    },
 }
 
 /// Create a problem from the CLI args and config
@@ -293,6 +303,24 @@ async fn main() -> Result<()> {
             if !lint_result.success || !test_result.success {
                 std::process::exit(1);
             }
+        }
+        Command::Chat { model_type, model } => {
+            info!("Starting chat interface");
+            
+            // Create a custom LLM config for the chat, using the ranking config as a base
+            let mut chat_llm_config = config.ranking.llm.clone();
+            
+            // Override with command line args if provided
+            if let Some(model_type_str) = model_type {
+                chat_llm_config.model_type = model_type_str;
+            }
+            if let Some(model_name) = model {
+                chat_llm_config.model = model_name;
+            }
+            
+            // Start the chat interface
+            let mut chat_app = engine_builder::stages::chat::ChatApp::new(&chat_llm_config).await?;
+            chat_app.run().await?;
         }
     }
 

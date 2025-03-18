@@ -25,6 +25,8 @@ ignore = "0.4"
 colored = "2.0"
 uuid = { version = "1.6", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+ratatui = "0.24.0"
+crossterm = "0.27.0"
 
 [dev-dependencies]
 tempfile = "3.10"
