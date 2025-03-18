@@ -1,0 +1,10 @@
+name: Dogfooding Github Actions
+
+on: pull_request
+
+jobs:
+  experiment:
+    name: Experiment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: engines-dev/github-action@v0
