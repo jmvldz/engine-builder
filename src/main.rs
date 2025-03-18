@@ -74,6 +74,16 @@ enum Command {
         #[arg(short, long)]
         parallel: bool,
     },
+    /// Start an interactive chat session with the configured LLM
+    Chat {
+        /// Which LLM configuration to use (relevance, ranking, dockerfile, scripts)
+        #[arg(short, long, default_value = "relevance")]
+        config_type: String,
+        
+        /// Temperature for LLM responses (0.0-1.0)
+        #[arg(short, long)]
+        temperature: Option<f64>,
+    },
 }
 
 /// Create a problem from the CLI args and config
@@ -293,6 +303,31 @@ async fn main() -> Result<()> {
             if !lint_result.success || !test_result.success {
                 std::process::exit(1);
             }
+        }
+        Command::Chat { config_type, temperature } => {
+            info!("Starting chat session with LLM");
+            
+            // Determine which LLM configuration to use
+            let llm_config = match config_type.to_lowercase().as_str() {
+                "relevance" => config.relevance.llm.clone(),
+                "ranking" => config.ranking.llm.clone(),
+                "dockerfile" => config.dockerfile.llm.clone(),
+                "scripts" => config.scripts.llm.clone(),
+                _ => {
+                    eprintln!("Invalid config type: {}. Using relevance config.", config_type);
+                    config.relevance.llm.clone()
+                }
+            };
+            
+            // Create chat configuration
+            let chat_config = engine_builder::chat::ChatConfig {
+                llm_config,
+                max_tokens: 4096,
+                temperature: temperature.unwrap_or(0.7),
+            };
+            
+            // Start the chat session
+            engine_builder::chat::start_chat(chat_config).await?;
         }
     }
 
