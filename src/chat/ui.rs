@@ -74,7 +74,14 @@ impl ChatApp {
                                     self.running = false;
                                 } else {
                                     // Send input to chat handler
-                                    let _ = self.tx.send(input_text.clone()).await;
+                                    if let Err(e) = self.tx.send(input_text.clone()).await {
+                                        log::error!("Failed to send user input: {}", e);
+                                        // Add error message to local history
+                                        self.messages.push(ChatMessage {
+                                            role: "system".to_string(),
+                                            content: format!("Error: Failed to send message: {}", e),
+                                        });
+                                    }
                                     
                                     // Add user message to local history
                                     self.messages.push(ChatMessage {
@@ -339,21 +346,15 @@ pub async fn run_chat_ui(
     // Create app state
     let mut app = ChatApp::new(tx);
     
-    // Create channel for processing incoming messages
-    let (ui_tx, mut ui_rx) = mpsc::channel::<ChatMessage>(100);
+    // We don't need an internal channel anymore, removed
     
-    // Spawn task to handle incoming messages from chat
-    let message_task = tokio::spawn(async move {
-        let mut rx = rx;
-        while let Some(message) = rx.recv().await {
-            let _ = ui_tx.send(message).await;
-        }
-    });
-    
+    // Create a channel for collecting messages from background tasks
+    let mut user_input_rx = rx;
+        
     // Main UI loop
     while app.running {
-        // Process any incoming messages
-        while let Ok(message) = ui_rx.try_recv() {
+        // Non-blocking check for new messages
+        if let Ok(message) = user_input_rx.try_recv() {
             app.messages.push(message);
         }
         
@@ -368,9 +369,6 @@ pub async fn run_chat_ui(
     terminal::disable_raw_mode()?;
     terminal.backend_mut().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-    
-    // Abort the message handling task
-    message_task.abort();
     
     Ok(())
 }
