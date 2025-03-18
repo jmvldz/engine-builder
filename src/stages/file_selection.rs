@@ -15,20 +15,20 @@ use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Parse the LLM response to extract the file patterns
 pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
-    info!("Parsing file patterns from LLM response");
+    debug!("Parsing file patterns from LLM response");
 
     // Try to extract a JSON array from the response
     let json_pattern = Regex::new(r"```(?:json)?\s*(\[[\s\S]*?\])```").unwrap();
 
     if let Some(captures) = json_pattern.captures(response) {
         if let Some(json_str) = captures.get(1) {
-            info!("Found JSON pattern in response");
+            debug!("Found JSON pattern in response");
             let json_content = json_str.as_str();
             debug!("Extracted JSON content: {}", json_content);
 
             match serde_json::from_str::<Vec<String>>(json_content) {
                 Ok(patterns) => {
-                    info!(
+                    debug!(
                         "Successfully parsed {} file patterns from JSON",
                         patterns.len()
                     );
@@ -41,14 +41,14 @@ pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
             }
         }
     } else {
-        info!("No JSON pattern found in response, trying fallback pattern");
+        debug!("No JSON pattern found in response, trying fallback pattern");
     }
 
     // If regex didn't match, try to find any list-like structure
     let fallback_pattern = Regex::new(r"\[([\s\S]*?)\]").unwrap();
     if let Some(captures) = fallback_pattern.captures(response) {
         if let Some(list_str) = captures.get(1) {
-            info!("Found array-like pattern in response");
+            debug!("Found array-like pattern in response");
             // Try to split by commas and clean up each entry
             let patterns: Vec<String> = list_str
                 .as_str()
@@ -60,7 +60,7 @@ pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
                 .collect();
 
             if !patterns.is_empty() {
-                info!(
+                debug!(
                     "Successfully parsed {} file patterns using fallback method",
                     patterns.len()
                 );
@@ -100,13 +100,13 @@ pub async fn run_file_selection(
         .context("Failed to create LLM client")?;
 
     // Load exclusion config from file
-    info!(
+    debug!(
         "Loading exclusion config from: {}",
         codebase_config.exclusions_path
     );
     let exclusion_config = match ExclusionConfig::from_file(&codebase_config.exclusions_path) {
         Ok(config) => {
-            info!("Successfully loaded exclusion config with {} extensions, {} files, and {} directories to skip",
+            debug!("Successfully loaded exclusion config with {} extensions, {} files, and {} directories to skip",
                   config.extensions_to_skip.len(),
                   config.files_to_skip.len(),
                   config.directories_to_skip.len());
@@ -130,10 +130,10 @@ pub async fn run_file_selection(
 
     // Get all file paths for this problem
     let all_files = configured_problem.all_file_paths();
-    info!("Found {} files in codebase", all_files.len());
+    debug!("Found {} files in codebase", all_files.len());
 
     // Generate a tree representation of the codebase
-    info!("Generating codebase tree structure");
+    debug!("Generating codebase tree structure");
     let tree_output = configured_problem.generate_tree();
 
     // Save the tree output to a file
@@ -153,10 +153,10 @@ pub async fn run_file_selection(
     fs::write(&tree_path, &tree_output)
         .context(format!("Failed to write tree output to: {:?}", tree_path))?;
 
-    info!("Saved codebase tree to: {:?}", tree_path);
+    debug!("Saved codebase tree to: {:?}", tree_path);
 
     // Ask the LLM which files to process based on the tree
-    info!("Asking LLM to select files for processing");
+    debug!("Asking LLM to select files for processing");
     let tree_prompt = get_codebase_tree_user_prompt(&configured_problem, &tree_output);
 
     // Save the prompt to a file
@@ -168,7 +168,7 @@ pub async fn run_file_selection(
     fs::write(&prompt_path, &tree_prompt)
         .context(format!("Failed to write prompt to: {:?}", prompt_path))?;
 
-    info!("Saved prompt to: {:?}", prompt_path);
+    debug!("Saved prompt to: {:?}", prompt_path);
 
     // Add tracing metadata
     let metadata = serde_json::json!({
@@ -201,12 +201,12 @@ pub async fn run_file_selection(
         response_path
     ))?;
 
-    info!("Saved LLM response to: {:?}", response_path);
+    debug!("Saved LLM response to: {:?}", response_path);
 
     let file_patterns = parse_file_patterns(&llm_response.content)
         .context("Failed to parse file patterns from LLM response")?;
 
-    info!(
+    debug!(
         "LLM selected {} file patterns for processing",
         file_patterns.patterns.len()
     );
@@ -240,7 +240,7 @@ pub fn save_file_patterns(
         file_patterns_path
     ))?;
 
-    info!("Saved file patterns to: {:?}", file_patterns_path);
+    debug!("Saved file patterns to: {:?}", file_patterns_path);
 
     Ok(())
 }
@@ -251,7 +251,7 @@ pub async fn process_file_selection(
     codebase_config: &CodebaseConfig,
     problem: SWEBenchProblem,
 ) -> Result<()> {
-    info!("Starting file selection process");
+    debug!("Starting file selection process");
 
     // Create a trajectory store for this problem (for future use)
     let _trajectory_store =
@@ -271,12 +271,12 @@ pub async fn process_file_selection(
     let cost = client.calculate_cost(&token_usage);
 
     // Output cost information
-    info!("File selection LLM usage: {}", token_usage);
-    info!("File selection LLM cost: {}", cost);
+    debug!("File selection LLM usage: {}", token_usage);
+    debug!("File selection LLM cost: {}", cost);
 
     // Save the results
     save_file_patterns(&config.trajectory_store_dir, &problem, &file_patterns)?;
 
-    info!("File selection process completed");
+    debug!("File selection process completed");
     Ok(())
 }

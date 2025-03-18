@@ -328,6 +328,10 @@ impl LLMClient for AnthropicClient {
         "anthropic"
     }
 
+    fn model_name(&self) -> &str {
+        &self.config.model
+    }
+
     fn get_token_prices(&self) -> (f64, f64) {
         self.get_model_pricing()
     }

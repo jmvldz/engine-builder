@@ -254,7 +254,19 @@ impl ChatApp {
             };
             
             formatted_text.push_str(header);
-            formatted_text.push_str(&message.content);
+            
+            // Handle tool execution messages specially to make them stand out
+            let content = if message.role == "assistant" && message.content.starts_with("I'll run the '") {
+                // Add a visual indicator for tool execution
+                format!("⚙️  RUNNING TOOL: {}", &message.content["I'll run the '".len()..])
+            } else if message.role == "assistant" && message.content.starts_with("Result:") {
+                // Add a visual indicator for tool results
+                format!("✅ {}", &message.content)
+            } else {
+                message.content.clone()
+            };
+            
+            formatted_text.push_str(&content);
             formatted_text.push_str("\n");
         }
         

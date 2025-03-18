@@ -123,11 +123,39 @@ async fn main() -> Result<()> {
     // Log level can be controlled by setting the RUST_LOG environment variable
     // e.g., RUST_LOG=info cargo run --release -- -c config.json pipeline
     // or RUST_LOG=debug for more detailed logs
-    env_logger::init();
+    
+    // Use a custom logger setup based on the command
+    let cli = Cli::parse();
+    
+    // Check for special tool execution environment variable
+    if let Ok(tool_log_path) = std::env::var("ENGINE_BUILDER_TOOL_LOG") {
+        // Tool is being executed as part of the chat UI, redirect logs to the specified file
+        let log_path = std::path::PathBuf::from(tool_log_path);
+        let file = std::fs::File::create(log_path).unwrap();
+        env_logger::builder()
+            .target(env_logger::Target::Pipe(Box::new(file)))
+            .init();
+    } else {
+        // Normal logging based on command
+        match cli.command {
+            Command::Chat { .. } => {
+                // For chat mode, redirect logs to a file
+                let log_path = std::path::PathBuf::from("engine-builder.log");
+                let file = std::fs::File::create(log_path).unwrap();
+                env_logger::builder()
+                    .target(env_logger::Target::Pipe(Box::new(file)))
+                    .init();
+            }
+            _ => {
+                // For other commands, use normal logging
+                env_logger::init();
+            }
+        }
+    };
 
     info!("Starting engine-builder. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
-
-    let cli = Cli::parse();
+    
+    // Use the already parsed CLI args
     let mut config = Config::from_file(cli.config_path.as_deref())?;
 
     // Initialize Langfuse for observability (from config or environment variables)
