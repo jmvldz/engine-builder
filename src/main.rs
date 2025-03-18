@@ -74,6 +74,16 @@ enum Command {
         #[arg(short, long)]
         parallel: bool,
     },
+    /// Start an interactive chat session with the LLM
+    Chat {
+        /// LLM model to use (defaults to the one in config)
+        #[arg(short, long)]
+        model: Option<String>,
+        
+        /// LLM model type (openai or anthropic, defaults to the one in config)
+        #[arg(short = 't', long)]
+        model_type: Option<String>,
+    },
 }
 
 /// Create a problem from the CLI args and config
@@ -292,6 +302,30 @@ async fn main() -> Result<()> {
             // Set exit code if either container failed
             if !lint_result.success || !test_result.success {
                 std::process::exit(1);
+            }
+        }
+        Command::Chat { model, model_type } => {
+            info!("Starting chat session with LLM");
+            
+            // Update config with CLI-provided model info if any
+            if let Some(model_name) = model {
+                config.relevance.llm.model = model_name;
+            }
+            
+            if let Some(model_type_name) = model_type {
+                config.relevance.llm.model_type = model_type_name;
+            }
+            
+            // Create and start chat session
+            match engine_builder::chat::ChatSession::new(config).await {
+                Ok(mut chat_session) => {
+                    if let Err(e) = chat_session.start().await {
+                        warn!("Error in chat session: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to create chat session: {}", e);
+                }
             }
         }
     }
