@@ -198,7 +198,7 @@ impl ChatApp {
     
     async fn run_app<B: ratatui::backend::Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         loop {
-            terminal.draw(|f| self.ui::<B>(f))?;
+            terminal.draw(|f| self.ui(f))?;
             
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
