@@ -297,7 +297,7 @@ impl ChatApp {
         // Convert output lines to ListItems
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Ensure proper text formatting
+                // Ensure proper text formatting with spaces between words
                 let content = line.replace("\n", " \n"); // Ensure newlines have spaces
                 ListItem::new(Line::from(content))
             })
