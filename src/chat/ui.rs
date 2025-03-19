@@ -6,10 +6,9 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
+    widgets::{Block, Borders, Paragraph, Wrap, Clear},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Span, Line},
     Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
