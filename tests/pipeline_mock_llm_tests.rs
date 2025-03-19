@@ -180,7 +180,7 @@ fn create_test_configs() -> (Config, RelevanceConfig, CodebaseConfig, RankingCon
     
     // Create a global config that will be used for trajectory store paths
     let global_config = Config {
-        anthropic_api_key: "test-api-key".to_string(),
+        anthropic_api_key: "dummy_key".to_string(),
         model: "test-model".to_string(),
         relevance: RelevanceConfig {
             model: Some("test-model".to_string()),

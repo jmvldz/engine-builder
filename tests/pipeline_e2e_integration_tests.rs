@@ -125,7 +125,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     
     // Create configs
     let global_config = Config {
-        anthropic_api_key: "test-key".to_string(),
+        anthropic_api_key: "dummy_key".to_string(),
         model: "test-model".to_string(),
         relevance: RelevanceConfig {
             model: Some("test-model".to_string()),
