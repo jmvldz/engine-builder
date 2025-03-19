@@ -4,7 +4,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{info, warn};
 use std::collections::{HashMap, HashSet};
 
-use crate::config::RankingConfig;
+use crate::config::{Config, RankingConfig};
 use crate::llm::client::{create_client, LLMClient};
 use crate::llm::prompts::get_ranking_user_prompt;
 use crate::models::problem::SWEBenchProblem;
@@ -369,7 +369,10 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
     info!("Starting file ranking");
 
     // Create a trajectory store for this problem to check if previous steps were run
-    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &problem)
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem)
         .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
 
     // Check if file selection step was run
@@ -388,8 +391,18 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
         return Err(anyhow::anyhow!("Relevance step not run. Run 'cargo run --release -- relevance' first."));
     }
 
+    // Create LLM config for Anthropic
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
 

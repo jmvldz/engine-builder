@@ -32,11 +32,41 @@ cp config.json.example config.json
 ```
 
 Edit the configuration file to set your:
-- API keys for OpenAI and/or Anthropic
+- Anthropic API key (a single top-level key for all LLM operations)
 - Path to your codebase
 - Custom problem statement
-- File extensions to include
-- Directories to exclude
+- Model configurations for each step (relevance, ranking, dockerfile, scripts)
+
+### Configuration Structure
+
+The configuration file uses a simplified structure with a single API key:
+
+```json
+{
+  "anthropic_api_key": "your_anthropic_api_key_here",
+  "output_path": ".engines",
+  "codebase": {
+    "path": "./path/to/your/codebase",
+    "problem_id": "custom_problem",
+    "problem_statement": "Your problem description here...",
+    "exclusions_path": "exclusions.json"
+  },
+  "relevance": {
+    "model": {
+      "model": "claude-3-sonnet-20240229",
+      "timeout": 30,
+      "max_retries": 3
+    },
+    "max_workers": 8,
+    "max_tokens": 4096,
+    "timeout": 300.0,
+    "max_file_tokens": 100000
+  },
+  // Other configuration sections...
+}
+```
+
+Each stage can specify its own model configuration, but all stages will use the same Anthropic API key.
 
 ## Usage
 
@@ -127,11 +157,13 @@ File tree traversal logs are shown at the INFO level, including:
 
 ## Results
 
-Results are stored in the trajectory store directory specified in the config:
+All results are stored in the output directory specified by the `output_path` configuration option (default: `.engines`):
 
-- Relevance decisions: `$TRAJECTORY_STORE_DIR/$PROBLEM_ID/relevance_decisions.json`
-- File rankings: `$TRAJECTORY_STORE_DIR/$PROBLEM_ID/ranking.json`
-- Dockerfiles: `data/dockerfiles/$PROBLEM_ID_Dockerfile` and `./Dockerfile`
+- Trajectory data: `$OUTPUT_PATH/trajectories/$PROBLEM_ID/`
+- Relevance decisions: `$OUTPUT_PATH/trajectories/$PROBLEM_ID/relevance_decisions.json`
+- File rankings: `$OUTPUT_PATH/trajectories/$PROBLEM_ID/ranking.json`
+- Dockerfiles: `$OUTPUT_PATH/dockerfiles/$PROBLEM_ID/Dockerfile`
+- Scripts: `$OUTPUT_PATH/scripts/$PROBLEM_ID/`
 
 ## License
 
