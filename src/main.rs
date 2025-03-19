@@ -18,7 +18,7 @@ struct Cli {
     config_path: Option<String>,
 
     /// Path to the codebase to analyze
-    #[arg(short, long)]
+    #[arg(short = 'd', long)]
     codebase_path: Option<PathBuf>,
 
     /// Problem ID for trajectory storage
