@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use engine_builder::config::{CodebaseConfig, Config, LLMConfig, ModelConfig, RankingConfig, RelevanceConfig};
+use engine_builder::config::{CodebaseConfig, Config, LLMConfig, RankingConfig, RelevanceConfig};
 use engine_builder::llm::client::{LLMClient, LLMResponse, TokenCost, TokenUsage};
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::file::FilePatternSelection;
@@ -76,7 +76,7 @@ impl LLMClient for MockLLMClient {
 }
 
 // Factory function for creating mock LLM client
-fn create_mock_client(_: &ModelConfig, _api_key: &str) -> Pin<Box<dyn Future<Output = Result<Arc<dyn LLMClient>>> + Send>> {
+fn create_mock_client(_: &LLMConfig) -> Pin<Box<dyn Future<Output = Result<Arc<dyn LLMClient>>> + Send>> {
     Box::pin(async {
         let client: Arc<dyn LLMClient> = Arc::new(MockLLMClient::new());
         Ok(client)
@@ -124,28 +124,24 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     .with_exclusion_config(ExclusionConfig::default());
     
     // Create configs
-    let model_config = ModelConfig {
-        model: "test-model".to_string(),
-        timeout: 30,
-        max_retries: 3,
-    };
-    
     let global_config = Config {
         anthropic_api_key: "test-key".to_string(),
+        model: "test-model".to_string(),
         relevance: RelevanceConfig {
-            model: model_config.clone(),
+            model: Some("test-model".to_string()),
             max_tokens: 1000,
             max_file_tokens: 10000,
             max_workers: 4,
             timeout: 30.0,
         },
         ranking: RankingConfig {
-            model: model_config.clone(),
+            model: Some("test-model".to_string()),
             max_tokens: 1000,
             num_rankings: 1,
             max_workers: 4,
             temperature: 0.0,
         },
+        output_path: Some(".engines".to_string()),
         codebase: CodebaseConfig {
             path: codebase_dir.path().to_path_buf(),
             exclusions_path: "exclusions.json".to_string(),
@@ -156,17 +152,19 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
         scripts: Default::default(),
         container: Default::default(),
         observability: Default::default(),
-        output_path: Some(temp_path.clone()),
     };
     
     // Extract configs from global config
     let _relevance_config = global_config.relevance.clone();
     let _codebase_config = global_config.codebase.clone();
-    let ranking_config = global_config.ranking.clone();
     
     // Create a trajectory store using the trajectory directory from global config
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    let trajectory_dir = ".engines/trajectories/e2e_test";
     let store = TrajectoryStore::new(&trajectory_dir, &problem)?;
+    
+    // Ensure the problem directory exists
+    let prob_dir = store.problem_dir();
+    std::fs::create_dir_all(&prob_dir)?;
     
     // Stage 1: File Selection
     // Create mock file selection results
@@ -199,7 +197,13 @@ These files are most likely to be relevant to the issue described."#;
         "src/models/file.rs".to_string(),
     ]);
     
-    file_selection::save_file_patterns(&trajectory_dir, &problem, &file_patterns)?;
+    // Create the file patterns directory structure
+    std::fs::create_dir_all(&prob_dir)?;
+    
+    // Save file patterns directly to the expected path
+    let file_patterns_path = prob_dir.join("file_patterns.json");
+    let file_patterns_json = serde_json::to_string_pretty(&file_patterns)?;
+    std::fs::write(&file_patterns_path, file_patterns_json)?;
     
     // Stage 2: Relevance
     // Create mock relevance decisions
@@ -233,8 +237,9 @@ These files are most likely to be relevant to the issue described."#;
     );
     
     // Write the relevance decisions to the expected path
+    let relevance_decisions_path = prob_dir.join("relevance_decisions.json");
     std::fs::write(
-        store.relevance_decisions_path(),
+        &relevance_decisions_path,
         serde_json::to_string_pretty(&relevance_decisions)?,
     )?;
     
@@ -243,7 +248,7 @@ These files are most likely to be relevant to the issue described."#;
     problem_instance.initialize()?;
     
     // Run ranking - this should be able to read relevance decisions and produce ranking
-    ranking::process_rankings(ranking_config, problem_instance).await?;
+    ranking::process_rankings(&global_config, problem_instance).await?;
     
     // Verify that ranking was created
     assert!(store.ranking_exists());

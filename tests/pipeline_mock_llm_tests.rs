@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use engine_builder::config::{CodebaseConfig, Config, LLMConfig, ModelConfig, RelevanceConfig, RankingConfig};
+use engine_builder::config::{CodebaseConfig, Config, LLMConfig, RelevanceConfig, RankingConfig};
 use engine_builder::llm::client::{LLMClient, LLMResponse, TokenCost, TokenUsage};
 use engine_builder::models::problem::SWEBenchProblem;
 use engine_builder::models::exclusion::ExclusionConfig;
@@ -178,25 +178,19 @@ fn create_test_configs() -> (Config, RelevanceConfig, CodebaseConfig, RankingCon
     let temp_dir = tempdir().unwrap();
     let temp_path = temp_dir.path().to_string_lossy().to_string();
     
-    // Create a model config for both relevance and ranking
-    let model_config = ModelConfig {
-        model: "test-model".to_string(),
-        timeout: 30,
-        max_retries: 3,
-    };
-    
     // Create a global config that will be used for trajectory store paths
     let global_config = Config {
         anthropic_api_key: "test-api-key".to_string(),
+        model: "test-model".to_string(),
         relevance: RelevanceConfig {
-            model: model_config.clone(),
+            model: Some("test-model".to_string()),
             max_tokens: 1000,
             max_file_tokens: 10000,
             max_workers: 4,
             timeout: 30.0,
         },
         ranking: RankingConfig {
-            model: model_config.clone(),
+            model: Some("test-model".to_string()),
             max_tokens: 1000,
             num_rankings: 1,
             max_workers: 4,
@@ -261,9 +255,11 @@ async fn test_mock_pipeline_flow() -> Result<()> {
     
     // Now run file selection
     let (file_patterns, _) = file_selection::run_file_selection(
-        &relevance_config, 
-        &codebase_config, 
-        &problem
+        &global_config,
+        &global_config.relevance,
+        &global_config.codebase,
+        &problem,
+        &trajectory_dir
     ).await?;
     
     // Verify file patterns
