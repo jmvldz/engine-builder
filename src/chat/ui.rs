@@ -294,11 +294,15 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Convert output lines to ListItems
+        // Convert output lines to ListItems with proper text formatting
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Create a ListItem with Line and Span for proper text formatting
-                ListItem::new(Line::from(vec![Span::raw(line.clone())]))
+                // Create a paragraph for each line to ensure proper text wrapping
+                let paragraph = Paragraph::new(line.clone())
+                    .wrap(Wrap { trim: false });
+                
+                // Convert paragraph to ListItem
+                ListItem::new(paragraph.content.lines.clone())
             })
             .collect();
         
@@ -410,15 +414,7 @@ pub async fn run_chat_ui(
             };
             
             // Add the message with prefix to output lines
-            // Insert a space after each character to ensure proper spacing
-            let formatted_content = message.content.chars().fold(String::new(), |mut acc, c| {
-                acc.push(c);
-                if c != ' ' {
-                    acc.push(' ');
-                }
-                acc
-            });
-            app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
+            app.output_lines.push_back(format!("{}{}", prefix, message.content));
             
             // Force terminal to redraw
             terminal.autoresize()?;
