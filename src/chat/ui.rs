@@ -297,9 +297,8 @@ impl ChatApp {
         // Convert output lines to ListItems
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Ensure proper text formatting with spaces between words
-                let content = line.replace("\n", " \n"); // Ensure newlines have spaces
-                ListItem::new(Line::from(content))
+                // Create a Line with proper text formatting
+                ListItem::new(line.clone())
             })
             .collect();
         
@@ -412,7 +411,7 @@ pub async fn run_chat_ui(
             
             // Add the message with prefix to output lines
             // Format the message content to ensure proper spacing between words
-            let formatted_content = message.content.clone();
+            let formatted_content = message.content.chars().collect::<Vec<char>>().chunks(1).map(|c| c.iter().collect::<String>()).collect::<Vec<String>>().join(" ");
             app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
             
             // Force terminal to redraw
