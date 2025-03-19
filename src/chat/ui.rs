@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -411,11 +411,18 @@ pub async fn run_chat_ui(
             };
             
             // Add the message with prefix to output lines
-            // Format the message content with spaces between words
-            let formatted_content = message.content.split_whitespace().collect::<Vec<&str>>().join(" ");
-            
-            // Add the message with proper spacing
-            app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
+            // Process each line of the message separately to preserve newlines
+            for (i, line) in message.content.lines().enumerate() {
+                // Format the line with spaces between words
+                let formatted_line = line.split_whitespace().collect::<Vec<&str>>().join(" ");
+                
+                // Add prefix only to the first line
+                if i == 0 {
+                    app.output_lines.push_back(format!("{}{}", prefix, formatted_line));
+                } else {
+                    app.output_lines.push_back(format!("  {}", formatted_line));
+                }
+            }
             
             // Force terminal to redraw
             terminal.autoresize()?;
