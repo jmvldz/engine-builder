@@ -9,8 +9,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Span, Line, Text},
-    Terminal,
+    text::{Span, Line},
+    Terminal, TerminalOptions, Viewport,
 };
 use std::{io, time::Duration, collections::VecDeque};
 use tokio::sync::mpsc;
@@ -378,12 +378,19 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal with raw mode
+    // Set up terminal with custom configuration
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    
+    // Create terminal with inline viewport configuration
+    let mut terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Inline(10), // Use inline viewport with 10 lines above
+        },
+    )?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
