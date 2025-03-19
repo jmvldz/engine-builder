@@ -5,7 +5,7 @@ use serde_json;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{CodebaseConfig, Config, RelevanceConfig};
+use crate::config::{Config, CodebaseConfig, RelevanceConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::get_codebase_tree_user_prompt;
 use crate::models::exclusion::ExclusionConfig;
@@ -88,31 +88,16 @@ pub fn parse_file_patterns(response: &str) -> Result<FilePatternSelection> {
 
 /// Run the file selection process
 pub async fn run_file_selection(
-    config: &RelevanceConfig,
+    config: &Config,
+    relevance_config: &RelevanceConfig,
     codebase_config: &CodebaseConfig,
     problem: &SWEBenchProblem,
+    trajectory_dir: &str,
 ) -> Result<(FilePatternSelection, crate::llm::client::TokenUsage)> {
     info!("Starting file selection process");
-
-    // Create LLM config for Anthropic
-    let config_ref = std::env::var("CONFIG").unwrap_or_else(|_| "config.json".to_string());
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     
-    // Try to get API key from environment if not in config
-    let api_key = if global_config.anthropic_api_key.trim().is_empty() {
-        std::env::var("ANTHROPIC_API_KEY").unwrap_or_default()
-    } else {
-        global_config.anthropic_api_key.clone()
-    };
-    
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
-        api_key,
-        base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
-    };
+    // Get the LLM config which uses the top-level model as fallback
+    let llm_config = config.to_llm_config(&relevance_config.model);
 
     // Create the LLM client
     let client = create_client(&llm_config)
@@ -156,10 +141,7 @@ pub async fn run_file_selection(
     debug!("Generating codebase tree structure");
     let tree_output = configured_problem.generate_tree();
 
-    // Get the trajectory directory from the global config
-    let config_ref = std::env::var("CONFIG").unwrap_or_else(|_| "config.json".to_string());
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
+    // Use the trajectory dir provided by the caller (via config from main)
     
     // Save the tree output to a file
     let tree_path = Path::new(&trajectory_dir)
@@ -204,8 +186,8 @@ pub async fn run_file_selection(
     let llm_response = client
         .completion_with_tracing(
             &tree_prompt,
-            config.max_tokens,
-            0.0,
+            relevance_config.max_tokens,
+            0.0,  // Fixed temperature
             None, // Auto-generate trace ID
             Some(&format!("file_selection_{}", problem.id)),
             Some(metadata),
@@ -214,9 +196,7 @@ pub async fn run_file_selection(
         .context("Failed to get file selection from LLM")?;
 
     // Save the LLM response to a file
-    // Already defined earlier
-    let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
-    let response_path = Path::new(&trajectory_dir)
+    let response_path = Path::new(trajectory_dir)
         .join("codebase_tree_response.txt");
 
     // Write the LLM response to a file
@@ -271,49 +251,29 @@ pub fn save_file_patterns(
 
 /// Process the codebase to select relevant files
 pub async fn process_file_selection(
-    config: RelevanceConfig,
+    config: &Config,
     codebase_config: &CodebaseConfig,
     problem: SWEBenchProblem,
+    trajectory_dir: &str,
 ) -> Result<()> {
     debug!("Starting file selection process");
 
     // Create a trajectory store for this problem (for future use)
-    let config_ref = std::env::var("CONFIG").unwrap_or_else(|_| "config.json".to_string());
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let _trajectory_store =
-        TrajectoryStore::new(&global_config.get_trajectory_dir(&problem.id), &problem).context(format!(
+        TrajectoryStore::new(trajectory_dir, &problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
 
     // Run file selection and get token usage
     let (file_patterns, token_usage) =
-        run_file_selection(&config, codebase_config, &problem).await?;
-
-    // Create LLM config for Anthropic - just for pricing info
-    let config_ref = std::env::var("CONFIG").unwrap_or_else(|_| "config.json".to_string());
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    
-    // Try to get API key from environment if not in config
-    let api_key = if global_config.anthropic_api_key.trim().is_empty() {
-        std::env::var("ANTHROPIC_API_KEY").unwrap_or_default()
-    } else {
-        global_config.anthropic_api_key.clone()
-    };
-    
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
-        api_key,
-        base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
-    };
+        run_file_selection(config, &config.relevance, codebase_config, &problem, trajectory_dir).await?;
 
     // Create the LLM client to access pricing information
-    let client = create_client(&llm_config)
+    let client = create_client(&config.to_llm_config(&config.relevance.model))
         .await
         .context("Failed to create LLM client")?;
+    
     let cost = client.calculate_cost(&token_usage);
 
     // Output cost information
@@ -321,9 +281,7 @@ pub async fn process_file_selection(
     debug!("File selection LLM cost: {}", cost);
 
     // Save the results
-    let config_ref = std::env::var("CONFIG").unwrap_or_else(|_| "config.json".to_string());
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    save_file_patterns(&global_config.get_trajectory_dir(&problem.id), &problem, &file_patterns)?;
+    save_file_patterns(trajectory_dir, &problem, &file_patterns)?;
 
     debug!("File selection process completed");
     Ok(())

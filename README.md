@@ -25,10 +25,15 @@ cargo build --release
 
 ## Configuration
 
-Create a `config.json` file based on the provided `config.json.example`:
+Engine-builder checks for configuration files in the following order:
+1. Command-line specified file path (`-c` or `--config`)
+2. `~/.engines.config.json` (in the user's home directory)
+3. `./config.json` (in the current directory)
+
+You can create a configuration file based on the provided example:
 
 ```bash
-cp config.json.example config.json
+cp config.example.json config.json
 ```
 
 Edit the configuration file to set your:

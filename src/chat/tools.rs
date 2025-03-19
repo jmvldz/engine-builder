@@ -204,7 +204,7 @@ pub async fn execute_tool(
     match tool_name {
         "relevance" => {
             let result = stages::relevance::process_codebase(
-                config.relevance.clone(),
+                config,
                 &config.codebase,
                 problem.clone(),
             )
@@ -223,7 +223,7 @@ pub async fn execute_tool(
         }
         "ranking" => {
             let result = stages::ranking::process_rankings(
-                config.ranking.clone(),
+                config,
                 problem.clone(),
             )
             .await;
@@ -242,9 +242,10 @@ pub async fn execute_tool(
         "pipeline" => {
             // Run file selection
             let result1 = stages::file_selection::process_file_selection(
-                config.relevance.clone(),
+                config,
                 &config.codebase,
                 problem.clone(),
+                &config.get_trajectory_dir(&problem.id),
             )
             .await;
             
@@ -257,7 +258,7 @@ pub async fn execute_tool(
             
             // Process relevance
             let result2 = stages::relevance::process_codebase(
-                config.relevance.clone(),
+                config,
                 &config.codebase,
                 problem.clone(),
             )
@@ -272,7 +273,7 @@ pub async fn execute_tool(
             
             // Run ranking
             let result3 = stages::ranking::process_rankings(
-                config.ranking.clone(),
+                config,
                 problem.clone(),
             )
             .await;
@@ -286,8 +287,7 @@ pub async fn execute_tool(
             
             // Generate scripts
             let result4 = stages::scripts::generate_scripts_from_ranking(
-                config.ranking.clone(),
-                config.scripts.clone(),
+                config,
                 problem.clone(),
             )
             .await;
@@ -301,7 +301,7 @@ pub async fn execute_tool(
             
             // Generate Dockerfile
             let result5 = stages::dockerfile::generate_dockerfile(
-                config.dockerfile.clone(),
+                config,
                 problem.clone(),
             )
             .await;
@@ -319,9 +319,10 @@ pub async fn execute_tool(
         }
         "file_selection" => {
             let result = stages::file_selection::process_file_selection(
-                config.relevance.clone(),
+                &config,
                 &config.codebase,
                 problem.clone(),
+                &config.get_trajectory_dir(&problem.id),
             )
             .await;
             
@@ -338,7 +339,7 @@ pub async fn execute_tool(
         }
         "dockerfile" => {
             let result = stages::dockerfile::generate_dockerfile(
-                config.dockerfile.clone(),
+                &config,
                 problem.clone(),
             )
             .await;
@@ -361,10 +362,9 @@ pub async fn execute_tool(
                 .unwrap_or("engine-builder-test");
                 
             let result = stages::dockerfile::build_docker_image(
-                &config.ranking,
+                config,
                 problem,
                 tag,
-                config.dockerfile.max_retries,
             )
             .await;
             
@@ -381,8 +381,7 @@ pub async fn execute_tool(
         }
         "generate_scripts" => {
             let result = stages::scripts::generate_scripts_from_ranking(
-                config.ranking.clone(),
-                config.scripts.clone(),
+                config,
                 problem.clone(),
             )
             .await;

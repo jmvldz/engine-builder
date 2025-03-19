@@ -367,13 +367,11 @@ async fn rank_problem_files(
 }
 
 /// Process rankings for all problems
-pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProblem) -> Result<()> {
+pub async fn process_rankings(config: &Config, mut problem: SWEBenchProblem) -> Result<()> {
     info!("Starting file ranking");
 
     // Create a trajectory store for this problem to check if previous steps were run
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    let trajectory_dir = config.get_trajectory_dir(&problem.id);
     let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem)
         .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
 
@@ -393,19 +391,8 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
         return Err(anyhow::anyhow!("Relevance step not run. Run 'cargo run --release -- relevance' first."));
     }
 
-    // Create LLM config for Anthropic
-    // Get the config with the API key
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
-        api_key: global_config.anthropic_api_key.clone(),
-        base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
-    };
+    // Create LLM config using the config's to_llm_config method
+    let llm_config = config.to_llm_config(&config.ranking.model);
 
     // Create the LLM client
     let client = create_client(&llm_config)
@@ -414,7 +401,7 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
 
     info!("Processing problem: {}", problem.id);
 
-    match rank_problem_files(&mut problem, &config, &*client).await {
+    match rank_problem_files(&mut problem, &config.ranking, &*client).await {
         Ok(token_usage) => {
             // Calculate and display cost
             let cost = client.calculate_cost(&token_usage);

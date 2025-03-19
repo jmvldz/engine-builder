@@ -4,7 +4,7 @@ use regex::Regex;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{Config, RankingConfig, RelevanceConfig, ScriptConfig};
+use crate::config::Config;
 use crate::llm::client::{create_client, TokenCost};
 use crate::llm::prompts::{get_lint_script_user_prompt, get_test_script_user_prompt, 
                          get_setup_script_user_prompt,
@@ -31,16 +31,13 @@ impl Add for TokenCost {
 
 /// Generate scripts from ranking results
 pub async fn generate_scripts_from_ranking(
-    _config: RankingConfig,
-    script_config: ScriptConfig,
+    config: &Config,
     problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting script generation from ranking data");
 
     // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    let trajectory_dir = config.get_trajectory_dir(&problem.id);
     
     // Create a trajectory store
     let trajectory_store =
@@ -74,17 +71,8 @@ pub async fn generate_scripts_from_ranking(
     
     info!("Found {} ranked files", ranked_files.len());
     
-    // Generate scripts using the relevance config
-    let relevance_config = RelevanceConfig {
-        model: script_config.model.clone(),
-        max_workers: 1,
-        max_tokens: script_config.max_tokens,
-        timeout: script_config.model.timeout as f64,
-        max_file_tokens: 100_000, // Large value to avoid truncation
-    };
-    
-    // Call the regular script generation function
-    generate_scripts(relevance_config, script_config, problem).await
+    // Call the script generation function
+    generate_scripts(config, problem).await
 }
 
 /// Extract shell script content from LLM response
@@ -112,17 +100,14 @@ pub fn extract_script(response: &str) -> Result<String> {
 
 /// Generate lint and test scripts based on relevance data
 pub async fn generate_scripts(
-    _config: RelevanceConfig,
-    script_config: ScriptConfig,
+    config: &Config,
     mut problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting script generation from relevance data");
 
-    // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
-    let scripts_dir = global_config.get_scripts_dir(&problem.id);
+    // Get trajectory and scripts directories
+    let trajectory_dir = config.get_trajectory_dir(&problem.id);
+    let scripts_dir = config.get_scripts_dir(&problem.id);
     
     // Create the scripts directory
     std::fs::create_dir_all(&scripts_dir).context(format!(
@@ -186,19 +171,8 @@ pub async fn generate_scripts(
         .map(|(path, summary)| format!("{}:\n{}", path, summary))
         .collect();
 
-    // Create LLM config for Anthropic
-    // Get the config with the API key
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: script_config.model.model.clone(),
-        api_key: global_config.anthropic_api_key.clone(),
-        base_url: None,
-        timeout: script_config.model.timeout,
-        max_retries: script_config.model.max_retries,
-    };
+    // Create LLM config using the config's to_llm_config method
+    let llm_config = config.to_llm_config(&config.scripts.model);
 
     // Create LLM client
     let client = create_client(&llm_config)
@@ -233,15 +207,15 @@ pub async fn generate_scripts(
     let setup_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "setup_script_generation",
-        "temperature": script_config.temperature,
+        "temperature": config.scripts.temperature,
         "num_files": formatted_files.len(),
     });
 
     let setup_response = client
         .completion_with_tracing(
             &combined_setup_prompt,
-            script_config.max_tokens,
-            script_config.temperature,
+            config.scripts.max_tokens,
+            config.scripts.temperature,
             None, // Auto-generate trace ID
             Some(&format!("setup_script_{}", problem.id)),
             Some(setup_metadata),
@@ -298,15 +272,15 @@ pub async fn generate_scripts(
     let lint_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "lint_script_generation",
-        "temperature": script_config.temperature,
+        "temperature": config.scripts.temperature,
         "num_files": formatted_files.len(),
     });
 
     let lint_response = client
         .completion_with_tracing(
             &combined_lint_prompt,
-            script_config.max_tokens,
-            script_config.temperature,
+            config.scripts.max_tokens,
+            config.scripts.temperature,
             None, // Auto-generate trace ID
             Some(&format!("lint_script_{}", problem.id)),
             Some(lint_metadata),
@@ -357,15 +331,15 @@ pub async fn generate_scripts(
     let test_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "test_script_generation",
-        "temperature": script_config.temperature,
+        "temperature": config.scripts.temperature,
         "num_files": formatted_files.len(),
     });
 
     let test_response = client
         .completion_with_tracing(
             &combined_test_prompt,
-            script_config.max_tokens,
-            script_config.temperature,
+            config.scripts.max_tokens,
+            config.scripts.temperature,
             None, // Auto-generate trace ID
             Some(&format!("test_script_{}", problem.id)),
             Some(test_metadata),
@@ -448,15 +422,15 @@ Create a script called 'single-test-script.sh' that runs just one specified test
     let single_test_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "single_test_script_generation",
-        "temperature": script_config.temperature,
+        "temperature": config.scripts.temperature,
         "num_files": formatted_files.len(),
     });
 
     let single_test_response = client
         .completion_with_tracing(
             &combined_single_test_prompt,
-            script_config.max_tokens,
-            script_config.temperature,
+            config.scripts.max_tokens,
+            config.scripts.temperature,
             None, // Auto-generate trace ID
             Some(&format!("single_test_script_{}", problem.id)),
             Some(single_test_metadata),

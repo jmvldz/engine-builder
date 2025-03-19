@@ -5,7 +5,7 @@ use log::{debug, info, warn};
 use regex::Regex;
 use std::fs;
 
-use crate::config::{CodebaseConfig, Config, RelevanceConfig};
+use crate::config::{CodebaseConfig, Config};
 use crate::llm::client::{create_client, LLMClient};
 use crate::llm::prompts::get_relevance_user_prompt;
 use crate::models::exclusion::ExclusionConfig;
@@ -155,7 +155,7 @@ async fn assess_file_relevance(
     file_path: &str,
     file_content: &str,
     client: &dyn LLMClient,
-    config: &RelevanceConfig,
+    config: &Config,
     trajectory_store: &TrajectoryStore,
     trace_id: Option<&str>,
 ) -> Result<crate::llm::client::TokenUsage> {
@@ -167,7 +167,7 @@ async fn assess_file_relevance(
 
     // Check if the file is too large
     let token_count = count_tokens(file_content);
-    if token_count > config.max_file_tokens {
+    if token_count > config.relevance.max_file_tokens {
         warn!("File too large ({}): {}", token_count, file_path);
         return Ok(crate::llm::client::TokenUsage::default());
     }
@@ -187,7 +187,7 @@ async fn assess_file_relevance(
     let llm_response = client
         .completion_with_tracing(
             &prompt, 
-            config.max_tokens, 
+            config.relevance.max_tokens, 
             0.0,
             trace_id,
             Some(&format!("relevance_{}", file_path.replace("/", "_"))),
@@ -215,34 +215,23 @@ use std::path::Path;
 
 /// Process the codebase to assess file relevance
 pub async fn process_codebase(
-    config: RelevanceConfig,
+    config: &Config,
     codebase_config: &CodebaseConfig,
     problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting relevance assessment");
     
-    // Create LLM config for Anthropic
-    // Get the config with the API key
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
-        api_key: global_config.anthropic_api_key.clone(),
-        base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
-    };
+    // Create LLM config using the config's to_llm_config method
+    let llm_config = config.to_llm_config(&config.relevance.model);
     
     // Set up Langfuse trace for the entire relevance stage
     let trace_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "relevance",
-        "max_workers": config.max_workers,
-        "max_tokens": config.max_tokens,
+        "max_workers": config.relevance.max_workers,
+        "max_tokens": config.relevance.max_tokens,
         "model_type": "anthropic",
-        "model": config.model.model,
+        "model": config.get_model_for_stage(&config.relevance.model),
     });
     
     // Create a new trace
@@ -299,9 +288,7 @@ pub async fn process_codebase(
         .context("Failed to initialize problem")?;
 
     // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
+    let trajectory_dir = config.get_trajectory_dir(&configured_problem.id);
     let trajectory_store = TrajectoryStore::new(&trajectory_dir, &configured_problem)
         .context(format!(
             "Failed to create trajectory store for problem: {}",
@@ -374,7 +361,7 @@ pub async fn process_codebase(
         futures::stream::iter(file_contents.into_iter().map(|(file_path, file_content)| {
             let file_path_clone = file_path.clone();
             let client_ref = &*client;
-            let config_ref = &config;
+            let config_ref = config; // Pass the whole config reference
             let trajectory_store_ref = &trajectory_store;
             let problem_ref = &configured_problem;
             let progress_bar_ref = &progress_bar;
@@ -408,7 +395,7 @@ pub async fn process_codebase(
                 result
             }
         }))
-        .buffer_unordered(config.max_workers);
+        .buffer_unordered(config.relevance.max_workers);
 
     // Collect all the futures results
     let usage_results = futures.collect::<Vec<_>>().await;

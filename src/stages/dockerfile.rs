@@ -16,15 +16,13 @@ use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate a test-focused Dockerfile based on ranked files
 pub async fn generate_dockerfile(
-    config: DockerfileConfig,
+    config: &Config,
     mut problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting test-focused Dockerfile generation");
 
-    // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    // Get the trajectory directory for this problem
+    let trajectory_dir = config.get_trajectory_dir(&problem.id);
     let trajectory_store =
         TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
             "Failed to create trajectory store for problem: {}",
@@ -70,15 +68,8 @@ pub async fn generate_dockerfile(
         }
     }
 
-    // Create LLM config for Anthropic
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
-        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
-        base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
-    };
+    // Create LLM config using the config's to_llm_config method
+    let llm_config = config.to_llm_config(&config.dockerfile.model);
 
     // Create LLM client
     let client = create_client(&llm_config)
@@ -94,8 +85,8 @@ pub async fn generate_dockerfile(
     let llm_response = client
         .completion_with_tracing(
             &prompt,
-            config.max_tokens,
-            config.temperature,
+            config.dockerfile.max_tokens,
+            config.dockerfile.temperature,
             None,
             Some(&format!("dockerfile_{}", problem.id)),
             None,
@@ -183,14 +174,14 @@ pub async fn generate_dockerfile(
     }
 
     // Save to the output directory under dockerfiles/{problem_id}/
-    let dockerfile_path_str = global_config.get_dockerfile_path(&problem.id);
+    let dockerfile_path_str = config.get_dockerfile_path(&problem.id);
     let dockerfile_dir = Path::new(&dockerfile_path_str).parent().unwrap();
     fs::create_dir_all(dockerfile_dir).context(format!(
         "Failed to create Dockerfile directory at {:?}",
         dockerfile_dir
     ))?;
     
-    let dockerfile_path = Path::new(&global_config.get_dockerfile_path(&problem.id)).to_path_buf();
+    let dockerfile_path = Path::new(&config.get_dockerfile_path(&problem.id)).to_path_buf();
     fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
         "Failed to write test-focused Dockerfile to {:?}",
         dockerfile_path
@@ -203,15 +194,15 @@ pub async fn generate_dockerfile(
 
 /// Build a Docker image using the generated Dockerfile
 pub async fn build_docker_image(
-    _config: &crate::config::RankingConfig,
+    config: &Config,
     problem: &SWEBenchProblem,
     tag: &str,
-    max_retries: usize,
 ) -> Result<()> {
-    // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
-    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    // Get the max retries from config
+    let max_retries = config.dockerfile.max_retries;
+    
+    // Get trajectory directory for this problem
+    let trajectory_dir = config.get_trajectory_dir(&problem.id);
     let trajectory_store =
         TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
             "Failed to create trajectory store for problem: {}",
@@ -267,7 +258,7 @@ pub async fn build_docker_image(
 
     let mut retry_count = 0;
     while retry_count <= max_retries {
-        let dockerfile_path = Path::new(&global_config.get_dockerfile_path(&problem.id)).to_path_buf();
+        let dockerfile_path = Path::new(&config.get_dockerfile_path(&problem.id)).to_path_buf();
 
         if retry_count > 0 {
             info!("Retry {} of {}", retry_count, max_retries);
@@ -398,11 +389,7 @@ pub async fn build_docker_image(
         
         // Create a config for the update_dockerfile_from_error function
         let dockerfile_config = DockerfileConfig {
-            model: crate::config::ModelConfig {
-                model: "claude-3-opus-20240229".to_string(),
-                timeout: 60,
-                max_retries: 3,
-            },
+            model: Some("claude-3-opus-20240229".to_string()),
             max_tokens: 4096,
             temperature: 0.0,
             max_retries: 3,
@@ -473,14 +460,14 @@ async fn update_dockerfile_from_error(
         dockerfile_path
     ))?;
 
-    // Create LLM config for Anthropic
+    // Create LLM config for this operation
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
-        model: config.model.model.clone(),
+        model: config.model.clone().unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
         api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
         base_url: None,
-        timeout: config.model.timeout,
-        max_retries: config.model.max_retries,
+        timeout: 60,
+        max_retries: 3,
     };
 
     // Create LLM client

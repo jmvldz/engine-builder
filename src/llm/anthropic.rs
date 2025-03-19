@@ -67,7 +67,7 @@ impl AnthropicClient {
         // Validate API key
         if config.api_key.trim().is_empty() {
             return Err(anyhow::anyhow!(
-                "Anthropic API key is empty. Please provide a valid API key in your config.json file under the appropriate section."
+                "Anthropic API key is empty. Please provide a valid API key in your configuration file (either ~/.engines.config.json or ./config.json) or set the ANTHROPIC_API_KEY environment variable."
             ));
         }
 
