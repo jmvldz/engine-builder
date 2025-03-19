@@ -3,7 +3,6 @@
   "output_path": ".engines",
   "model": "claude-3-7-sonnet-20250219",
   "codebase": {
-    "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",
     "problem_statement": "Fix the bug that causes X to happen when Y is triggered."
   },

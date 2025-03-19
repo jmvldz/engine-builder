@@ -38,9 +38,9 @@ cp config.example.json config.json
 
 Edit the configuration file to set your:
 - Anthropic API key (a single top-level key for all LLM operations)
-- Path to your codebase
 - Custom problem statement
 - Model configurations for each step (relevance, ranking, dockerfile, scripts)
+- Path to your codebase (optional, defaults to current directory)
 
 ### Configuration Structure
 
@@ -51,7 +51,6 @@ The configuration file uses a simplified structure with a single API key:
   "anthropic_api_key": "your_anthropic_api_key_here",
   "output_path": ".engines",
   "codebase": {
-    "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",
     "problem_statement": "Your problem description here...",
     "exclusions_path": "exclusions.json"

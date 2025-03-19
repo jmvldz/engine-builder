@@ -44,6 +44,7 @@ pub struct LLMConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodebaseConfig {
     /// Path to the codebase root directory
+    #[serde(default = "default_codebase_path")]
     pub path: PathBuf,
 
     /// ID for the problem (used for trajectory storage)
@@ -55,6 +56,10 @@ pub struct CodebaseConfig {
     /// Path to the exclusions config file
     #[serde(default = "default_exclusions_path")]
     pub exclusions_path: String,
+}
+
+fn default_codebase_path() -> PathBuf {
+    PathBuf::from(".")
 }
 
 fn default_exclusions_path() -> String {
