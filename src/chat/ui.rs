@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{self},
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
 };
 use ratatui::{
@@ -383,7 +383,7 @@ pub async fn run_chat_ui(
     // Set up terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, terminal::EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     
@@ -413,6 +413,8 @@ pub async fn run_chat_ui(
             // Add the message with prefix to output lines
             // Format the message content with spaces between words
             let formatted_content = message.content.split_whitespace().collect::<Vec<&str>>().join(" ");
+            
+            // Add the message with proper spacing
             app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
             
             // Force terminal to redraw
@@ -431,7 +433,7 @@ pub async fn run_chat_ui(
     
     // Restore terminal
     terminal::disable_raw_mode()?;
-    execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     
     Ok(())
