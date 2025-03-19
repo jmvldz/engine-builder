@@ -412,14 +412,11 @@ pub async fn run_chat_ui(
             // Add the message with prefix to output lines
             // Process each line of the message separately to preserve newlines
             for (i, line) in message.content.lines().enumerate() {
-                // Format the line with spaces between words
-                let formatted_line = line.split_whitespace().collect::<Vec<&str>>().join(" ");
-                
                 // Add prefix only to the first line
                 if i == 0 {
-                    app.output_lines.push_back(format!("{}{}", prefix, formatted_line));
+                    app.output_lines.push_back(format!("{}{}", prefix, line));
                 } else {
-                    app.output_lines.push_back(format!("  {}", formatted_line));
+                    app.output_lines.push_back(format!("  {}", line));
                 }
             }
             
