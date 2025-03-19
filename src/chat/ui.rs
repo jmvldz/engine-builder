@@ -409,9 +409,15 @@ pub async fn run_chat_ui(
                 _ => "? ",
             };
             
-            // Split message content into words and join with spaces to ensure proper spacing
-            let words: Vec<&str> = message.content.split_whitespace().collect();
-            let formatted_content = words.join(" ");
+            // Add the message with prefix to output lines
+            // Insert a space after each character to ensure proper spacing
+            let formatted_content = message.content.chars().fold(String::new(), |mut acc, c| {
+                acc.push(c);
+                if c != ' ' {
+                    acc.push(' ');
+                }
+                acc
+            });
             app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
             
             // Force terminal to redraw
