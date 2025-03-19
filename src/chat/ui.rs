@@ -377,12 +377,15 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal
+    // Set up terminal with raw mode
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    
+    // Disable line wrapping to prevent text formatting issues
+    execute!(stdout, crossterm::terminal::DisableLineWrap)?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
@@ -416,6 +419,11 @@ pub async fn run_chat_ui(
                 } else {
                     app.output_lines.push_back(format!("  {}", line));
                 }
+                
+                // Add an empty line after each message line for better readability
+                if i < message.content.lines().count() - 1 {
+                    app.output_lines.push_back(String::new());
+                }
             }
             
             // Force terminal to redraw
@@ -434,7 +442,11 @@ pub async fn run_chat_ui(
     
     // Restore terminal
     terminal::disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::EnableLineWrap,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     
     Ok(())
