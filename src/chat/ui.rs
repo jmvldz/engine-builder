@@ -1,14 +1,14 @@
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+    terminal::{self},
 };
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Wrap, Clear},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
+    Terminal, TerminalOptions, Viewport,
 };
 use std::{io, time::Duration};
 use tokio::sync::mpsc;
@@ -179,24 +179,32 @@ impl ChatApp {
 
     /// Render the UI
     pub fn render(&mut self, frame: &mut Frame) {
-        // Create layout with header, output, and input areas
-        let chunks = Layout::default()
+        // Create layout with header and main content area
+        let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(7),  // Static header (7 lines)
-                Constraint::Min(5),     // Output area (fills available space)
-                Constraint::Length(3),  // Fixed input box height
+                Constraint::Min(5),     // Main content area (fills available space)
             ])
             .split(frame.size());
         
         // Draw header
-        self.render_header(frame, chunks[0]);
+        self.render_header(frame, main_chunks[0]);
+        
+        // Create layout for output and input within the main content area
+        let content_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),     // Output area (fills available space)
+                Constraint::Length(3),  // Fixed input box height
+            ])
+            .split(main_chunks[1]);
         
         // Draw chat history
-        self.render_messages(frame, chunks[1]);
+        self.render_messages(frame, content_chunks[0]);
         
         // Draw input area
-        self.render_input(frame, chunks[2]);
+        self.render_input(frame, content_chunks[1]);
         
         // Draw help popup if requested
         if self.show_help {
@@ -227,13 +235,8 @@ impl ChatApp {
     
     /// Render input area
     fn render_input(&mut self, frame: &mut Frame, area: Rect) {
-        // Create a block for input
-        let input_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded);
-        
-        let inner_area = input_block.inner(area);
-        frame.render_widget(input_block, area);
+        // No border for input area
+        let inner_area = area;
         
         // Create input text with cursor
         let input_text = format!("> {}", self.input);
@@ -273,13 +276,8 @@ impl ChatApp {
     
     /// Render chat message history
     fn render_messages(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .title("Output");
-        
-        let inner_area = block.inner(area);
-        frame.render_widget(block, area);
+        // No border for output area
+        let inner_area = area;
         
         // Format all messages as a single text
         let mut formatted_text = String::new();
@@ -292,14 +290,26 @@ impl ChatApp {
                 _ => "? ",
             };
             
-            formatted_text.push_str(&format!("{}{}\n", prefix, message.content));
+            // Add the prefix only to the first line, then indent continuation lines
+            let lines: Vec<&str> = message.content.split('\n').collect();
+            if !lines.is_empty() {
+                // First line with prefix
+                formatted_text.push_str(&format!("{}{}\n", prefix, lines[0]));
+                
+                // Remaining lines with space indentation
+                for line in &lines[1..] {
+                    formatted_text.push_str(&format!("  {}\n", line));
+                }
+            }
+            
+            // Add an extra newline between messages
+            formatted_text.push('\n');
         }
         
         // Create a paragraph from the formatted text
         let paragraph = Paragraph::new(formatted_text)
             .style(Style::default())
-            .wrap(Wrap { trim: false })
-            .scroll((0, 0));
+            .wrap(Wrap { trim: true });
         
         frame.render_widget(paragraph, inner_area);
     }
@@ -373,12 +383,15 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal
-    let mut stdout = io::stdout();
+    // Set up terminal with inline viewport
     terminal::enable_raw_mode()?;
-    stdout.execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let mut terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Inline(20), // Use 20 lines for the inline viewport
+        },
+    )?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
@@ -404,7 +417,6 @@ pub async fn run_chat_ui(
     
     // Restore terminal
     terminal::disable_raw_mode()?;
-    terminal.backend_mut().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     
     Ok(())
