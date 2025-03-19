@@ -299,10 +299,18 @@ impl ChatApp {
             formatted_text.push_str(&format!("{}{}\n\n", prefix, message.content));
         }
         
-        // Create a paragraph from the formatted text
+        // Create a paragraph from the formatted text with auto-scrolling
+        // Calculate how many lines we need to scroll to show the most recent messages
+        let line_count = formatted_text.matches('\n').count();
+        // Add extra lines to account for wrapped text
+        let wrapped_lines = formatted_text.len() / inner_area.width.max(1) as usize;
+        let total_lines = line_count + wrapped_lines;
+        let scroll_offset = total_lines.saturating_sub(inner_area.height as usize);
+        
         let paragraph = Paragraph::new(formatted_text)
             .style(Style::default())
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: true })
+            .scroll((scroll_offset as u16, 0));
         
         frame.render_widget(paragraph, inner_area);
     }
@@ -399,6 +407,8 @@ pub async fn run_chat_ui(
         // Non-blocking check for new messages
         if let Ok(message) = user_input_rx.try_recv() {
             app.messages.push(message);
+            // Force terminal to scroll to bottom when new messages are received
+            terminal.autoresize()?;
         }
         
         // Draw UI
@@ -406,6 +416,9 @@ pub async fn run_chat_ui(
         
         // Handle user input and events
         app.handle_events().await?;
+        
+        // Redraw UI after handling events to ensure viewport is updated
+        terminal.draw(|f| app.render(f))?;
     }
     
     // Restore terminal
