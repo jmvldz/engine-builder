@@ -188,7 +188,7 @@ impl ChatApp {
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7),  // Static header (7 lines)
+                Constraint::Length(8),  // Static header (8 lines)
                 Constraint::Min(5),     // Main content area (fills available space)
             ])
             .split(frame.size());
@@ -200,7 +200,7 @@ impl ChatApp {
         let content_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1),     // Output area (fills available space)
+                Constraint::Min(3),     // Output area (fills available space)
                 Constraint::Length(3),  // Fixed input box height
             ])
             .split(main_chunks[1]);
