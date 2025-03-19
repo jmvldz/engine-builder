@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use engine_builder::config::{CodebaseConfig, LLMConfig, RankingConfig, RelevanceConfig};
+use engine_builder::config::{CodebaseConfig, Config, LLMConfig, ModelConfig, RankingConfig, RelevanceConfig};
 use engine_builder::llm::client::{LLMClient, LLMResponse, TokenCost, TokenUsage};
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::file::FilePatternSelection;
@@ -76,7 +76,7 @@ impl LLMClient for MockLLMClient {
 }
 
 // Factory function for creating mock LLM client
-fn create_mock_client(_: &LLMConfig) -> Pin<Box<dyn Future<Output = Result<Arc<dyn LLMClient>>> + Send>> {
+fn create_mock_client(_: &ModelConfig, _api_key: &str) -> Pin<Box<dyn Future<Output = Result<Arc<dyn LLMClient>>> + Send>> {
     Box::pin(async {
         let client: Arc<dyn LLMClient> = Arc::new(MockLLMClient::new());
         Ok(client)
@@ -88,8 +88,13 @@ fn create_mock_client(_: &LLMConfig) -> Pin<Box<dyn Future<Output = Result<Arc<d
 // can correctly consume the output from the previous stage
 #[tokio::test]
 async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
-    // Override the LLM client creation function
-    engine_builder::llm::client::set_client_factory(create_mock_client);
+    // Override the LLM client creation function with a wrapper that adapts to the expected signature
+    engine_builder::llm::client::set_client_factory(|llm_config: &LLMConfig| {
+        Box::pin(async {
+            let client: Arc<dyn LLMClient> = Arc::new(MockLLMClient::new());
+            Ok(client)
+        })
+    });
     // Create temporary directories and configs
     let temp_dir = tempdir()?;
     let temp_path = temp_dir.path().to_string_lossy().to_string();
@@ -119,42 +124,49 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     .with_exclusion_config(ExclusionConfig::default());
     
     // Create configs
-    let llm_config = LLMConfig {
-        model_type: "test".to_string(),
+    let model_config = ModelConfig {
         model: "test-model".to_string(),
-        api_key: "test-key".to_string(),
-        base_url: None,
         timeout: 30,
         max_retries: 3,
     };
     
-    let _relevance_config = RelevanceConfig {
-        trajectory_store_dir: temp_path.clone(),
-        max_tokens: 1000,
-        max_file_tokens: 10000,
-        max_workers: 4,
-        llm: llm_config.clone(),
-        timeout: 30.0,
+    let global_config = Config {
+        anthropic_api_key: "test-key".to_string(),
+        relevance: RelevanceConfig {
+            model: model_config.clone(),
+            max_tokens: 1000,
+            max_file_tokens: 10000,
+            max_workers: 4,
+            timeout: 30.0,
+        },
+        ranking: RankingConfig {
+            model: model_config.clone(),
+            max_tokens: 1000,
+            num_rankings: 1,
+            max_workers: 4,
+            temperature: 0.0,
+        },
+        codebase: CodebaseConfig {
+            path: codebase_dir.path().to_path_buf(),
+            exclusions_path: "exclusions.json".to_string(),
+            problem_id: "e2e_test".to_string(),
+            problem_statement: "Test problem statement".to_string(),
+        },
+        dockerfile: Default::default(),
+        scripts: Default::default(),
+        container: Default::default(),
+        observability: Default::default(),
+        output_path: Some(temp_path.clone()),
     };
     
-    let _codebase_config = CodebaseConfig {
-        path: codebase_dir.path().to_path_buf(),
-        exclusions_path: "exclusions.json".to_string(),
-        problem_id: "e2e_test".to_string(),
-        problem_statement: "Test problem statement".to_string(),
-    };
+    // Extract configs from global config
+    let _relevance_config = global_config.relevance.clone();
+    let _codebase_config = global_config.codebase.clone();
+    let ranking_config = global_config.ranking.clone();
     
-    let ranking_config = RankingConfig {
-        trajectory_store_dir: temp_path.clone(),
-        max_tokens: 1000,
-        num_rankings: 1,
-        max_workers: 4,
-        temperature: 0.0,
-        llm: llm_config,
-    };
-    
-    // Create a trajectory store
-    let store = TrajectoryStore::new(&temp_path, &problem)?;
+    // Create a trajectory store using the trajectory directory from global config
+    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    let store = TrajectoryStore::new(&trajectory_dir, &problem)?;
     
     // Stage 1: File Selection
     // Create mock file selection results
@@ -172,7 +184,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
 
 These files are most likely to be relevant to the issue described."#;
     
-    let prob_dir = Path::new(&temp_path).join("e2e_test");
+    let prob_dir = Path::new(&trajectory_dir).join("e2e_test");
     std::fs::create_dir_all(&prob_dir)?;
     
     std::fs::write(
@@ -187,7 +199,7 @@ These files are most likely to be relevant to the issue described."#;
         "src/models/file.rs".to_string(),
     ]);
     
-    file_selection::save_file_patterns(&temp_path, &problem, &file_patterns)?;
+    file_selection::save_file_patterns(&trajectory_dir, &problem, &file_patterns)?;
     
     // Stage 2: Relevance
     // Create mock relevance decisions

@@ -1,5 +1,5 @@
 use engine_builder::llm::prompts::get_dockerfile_error_user_prompt;
-use engine_builder::stages::dockerfile::extract_dockerfile;
+use engine_builder::stages::dockerfile::extract_dockerfile_from_response;
 
 #[test]
 fn test_extract_dockerfile_with_dockerfile_tag() {
@@ -21,7 +21,7 @@ CMD ["python3", "app.py"]
 
 This should fix the issue."#;
 
-    let result = extract_dockerfile(response).unwrap();
+    let result = extract_dockerfile_from_response(response).unwrap();
     let expected = r#"FROM ubuntu:20.04
 
 RUN apt-get update && \
@@ -57,7 +57,7 @@ CMD ["python3", "app.py"]
 
 This should fix the issue."#;
 
-    let result = extract_dockerfile(response).unwrap();
+    let result = extract_dockerfile_from_response(response).unwrap();
     let expected = r#"FROM ubuntu:20.04
 
 RUN apt-get update && \
@@ -87,8 +87,10 @@ RUN pip3 install -r requirements.txt
 
 CMD ["python3", "app.py"]"#;
 
-    let result = extract_dockerfile(response).unwrap();
-    assert_eq!(result, response);
+    // This test case doesn't have markdown code blocks, so it should return None
+    // We should directly use the response as the Dockerfile content
+    let result = extract_dockerfile_from_response(response);
+    assert!(result.is_none());
 }
 
 #[test]
