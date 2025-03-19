@@ -1,4 +1,4 @@
-use engine_builder::config::{Config, LLMConfig, ContainerConfig};
+use engine_builder::config::{Config, LLMConfig, ContainerConfig, ModelConfig};
 use std::fs::File;
 use std::io::Write;
 use tempfile::tempdir;
@@ -12,9 +12,9 @@ fn test_config_default() {
     assert_eq!(default_config.codebase.problem_id, "custom_problem");
     assert_eq!(default_config.codebase.exclusions_path, "exclusions.json");
     
-    // Check default LLM values
-    assert_eq!(default_config.relevance.llm.model_type, "anthropic");
-    assert_eq!(default_config.relevance.llm.model, "claude-3-sonnet-20240229");
+    // Check default model values
+    assert_eq!(default_config.relevance.model.model, "claude-3-sonnet-20240229");
+    assert_eq!(default_config.to_llm_config(&default_config.relevance.model).model_type, "anthropic");
     
     // Check default container config
     assert_eq!(default_config.container.timeout, 300);
@@ -58,33 +58,28 @@ fn test_config_from_file() {
     
     // Create a minimal test config file
     let config_json = r#"{
+        "anthropic_api_key": "test_api_key",
         "relevance": {
-            "llm": {
-                "model_type": "test_model_type",
+            "model": {
                 "model": "test_model",
-                "api_key": "test_api_key",
                 "timeout": 10,
                 "max_retries": 2
             },
             "max_workers": 4,
             "max_tokens": 1000,
             "timeout": 100.0,
-            "max_file_tokens": 10000,
-            "trajectory_store_dir": "test_dir"
+            "max_file_tokens": 10000
         },
         "ranking": {
-            "llm": {
-                "model_type": "test_model_type",
+            "model": {
                 "model": "test_model",
-                "api_key": "test_api_key",
                 "timeout": 10,
                 "max_retries": 2
             },
             "num_rankings": 2,
             "max_workers": 2,
             "max_tokens": 1000,
-            "temperature": 0.5,
-            "trajectory_store_dir": "test_dir"
+            "temperature": 0.5
         },
         "codebase": {
             "path": "test_path",
@@ -101,9 +96,10 @@ fn test_config_from_file() {
     let config = Config::from_file(Some(config_path.to_str().unwrap())).unwrap();
     
     // Verify the loaded config values
-    assert_eq!(config.relevance.llm.model_type, "test_model_type");
-    assert_eq!(config.relevance.llm.model, "test_model");
-    assert_eq!(config.relevance.llm.api_key, "test_api_key");
+    let llm_config = config.to_llm_config(&config.relevance.model);
+    assert_eq!(llm_config.model_type, "anthropic");
+    assert_eq!(config.relevance.model.model, "test_model");
+    assert_eq!(config.anthropic_api_key, "test_api_key");
     assert_eq!(config.relevance.max_workers, 4);
     
     assert_eq!(config.codebase.path.to_str().unwrap(), "test_path");
