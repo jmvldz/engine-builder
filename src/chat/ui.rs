@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::Line,
+    text::{Line, Span, Text},
     Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -297,8 +297,9 @@ impl ChatApp {
         // Convert output lines to ListItems with proper text formatting
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Create a ListItem with proper text wrapping
-                ListItem::new(line.clone())
+                // Create a ListItem with Line and Span for proper text formatting
+                let spans = vec![Span::raw(line.clone())];
+                ListItem::new(Line::from(spans))
             })
             .collect();
         
