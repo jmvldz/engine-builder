@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Line},
+    text::{Line, Span},
     Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -298,7 +298,8 @@ impl ChatApp {
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
                 // Create a Line with proper text formatting
-                ListItem::new(line.clone())
+                let spans = vec![Span::raw(line.clone())];
+                ListItem::new(Line::from(spans))
             })
             .collect();
         
@@ -410,9 +411,7 @@ pub async fn run_chat_ui(
             };
             
             // Add the message with prefix to output lines
-            // Format the message content to ensure proper spacing between words
-            let formatted_content = message.content.chars().collect::<Vec<char>>().chunks(1).map(|c| c.iter().collect::<String>()).collect::<Vec<String>>().join(" ");
-            app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
+            app.output_lines.push_back(format!("{}{}", prefix, message.content));
             
             // Force terminal to redraw
             terminal.autoresize()?;
