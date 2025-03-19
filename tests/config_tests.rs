@@ -1,4 +1,4 @@
-use engine_builder::config::{Config, LLMConfig, ContainerConfig, ModelConfig};
+use engine_builder::config::{Config, LLMConfig, ContainerConfig};
 use std::fs::File;
 use std::io::Write;
 use tempfile::tempdir;
@@ -13,7 +13,7 @@ fn test_config_default() {
     assert_eq!(default_config.codebase.exclusions_path, "exclusions.json");
     
     // Check default model values
-    assert_eq!(default_config.relevance.model.model, "claude-3-sonnet-20240229");
+    assert_eq!(default_config.get_model_for_stage(&default_config.relevance.model), "claude-3-7-sonnet-20250219");
     assert_eq!(default_config.to_llm_config(&default_config.relevance.model).model_type, "anthropic");
     
     // Check default container config
@@ -59,23 +59,16 @@ fn test_config_from_file() {
     // Create a minimal test config file
     let config_json = r#"{
         "anthropic_api_key": "test_api_key",
+        "model": "test_model",
         "relevance": {
-            "model": {
-                "model": "test_model",
-                "timeout": 10,
-                "max_retries": 2
-            },
+            "model": "test_model",
             "max_workers": 4,
             "max_tokens": 1000,
             "timeout": 100.0,
             "max_file_tokens": 10000
         },
         "ranking": {
-            "model": {
-                "model": "test_model",
-                "timeout": 10,
-                "max_retries": 2
-            },
+            "model": "test_model",
             "num_rankings": 2,
             "max_workers": 2,
             "max_tokens": 1000,
@@ -98,7 +91,7 @@ fn test_config_from_file() {
     // Verify the loaded config values
     let llm_config = config.to_llm_config(&config.relevance.model);
     assert_eq!(llm_config.model_type, "anthropic");
-    assert_eq!(config.relevance.model.model, "test_model");
+    assert_eq!(config.get_model_for_stage(&config.relevance.model), "test_model");
     assert_eq!(config.anthropic_api_key, "test_api_key");
     assert_eq!(config.relevance.max_workers, 4);
     
