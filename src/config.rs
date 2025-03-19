@@ -7,7 +7,11 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub anthropic_api_key: String,
+    #[serde(default = "default_model")]
+    pub model: String,
+    #[serde(default)]
     pub relevance: RelevanceConfig,
+    #[serde(default)]
     pub ranking: RankingConfig,
     pub codebase: CodebaseConfig,
     #[serde(default)]
@@ -22,23 +26,8 @@ pub struct Config {
     pub output_path: Option<String>,
 }
 
-/// Common model configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ModelConfig {
-    pub model: String,
-    pub timeout: u64, // in seconds
-    pub max_retries: u32,
-}
-
-impl Default for ModelConfig {
-    fn default() -> Self {
-        Self {
-            model: "claude-3-sonnet-20240229".to_string(),
-            timeout: 60,
-            max_retries: 3,
-        }
-    }
+fn default_model() -> String {
+    "claude-3-7-sonnet-20250219".to_string()
 }
 
 /// Legacy LLMConfig structure for compatibility with LLM client code
@@ -73,43 +62,87 @@ fn default_exclusions_path() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RelevanceConfig {
-    pub model: ModelConfig,
+    pub model: Option<String>,
+    #[serde(default = "default_max_workers")]
     pub max_workers: usize,
+    #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
+    #[serde(default = "default_relevance_timeout")]
     pub timeout: f64,
+    #[serde(default = "default_max_file_tokens")]
     pub max_file_tokens: usize,
 }
 
+fn default_max_workers() -> usize { 8 }
+fn default_max_tokens() -> usize { 4096 }
+fn default_relevance_timeout() -> f64 { 1800.0 }
+fn default_max_file_tokens() -> usize { 100_000 }
+
+impl Default for RelevanceConfig {
+    fn default() -> Self {
+        Self {
+            model: None,
+            max_workers: default_max_workers(),
+            max_tokens: default_max_tokens(),
+            timeout: default_relevance_timeout(),
+            max_file_tokens: default_max_file_tokens(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RankingConfig {
-    pub model: ModelConfig,
+    pub model: Option<String>,
+    #[serde(default = "default_num_rankings")]
     pub num_rankings: usize,
+    #[serde(default = "default_ranking_max_workers")]
     pub max_workers: usize,
+    #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
+    #[serde(default = "default_temperature")]
     pub temperature: f64,
+}
+
+fn default_num_rankings() -> usize { 3 }
+fn default_ranking_max_workers() -> usize { 4 }
+fn default_temperature() -> f64 { 0.0 }
+
+impl Default for RankingConfig {
+    fn default() -> Self {
+        Self {
+            model: None,
+            num_rankings: default_num_rankings(),
+            max_workers: default_ranking_max_workers(),
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockerfileConfig {
-    pub model: ModelConfig,
+    pub model: Option<String>,
+    #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
+    #[serde(default = "default_temperature")]
     pub temperature: f64,
+    #[serde(default = "default_max_retries")]
     pub max_retries: usize,
 }
+
+fn default_max_retries() -> usize { 3 }
 
 impl Default for DockerfileConfig {
     fn default() -> Self {
         Self {
-            model: ModelConfig {
-                model: "claude-3-opus-20240229".to_string(),
-                timeout: 60,
-                max_retries: 3,
-            },
-            max_tokens: 4096,
-            temperature: 0.0,
-            max_retries: 3,
+            model: None,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            max_retries: default_max_retries(),
         }
     }
 }
@@ -117,23 +150,22 @@ impl Default for DockerfileConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ScriptConfig {
-    pub model: ModelConfig,
+    pub model: Option<String>,
+    #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
+    #[serde(default = "default_temperature")]
     pub temperature: f64,
+    #[serde(default = "default_max_retries")]
     pub max_retries: usize,
 }
 
 impl Default for ScriptConfig {
     fn default() -> Self {
         Self {
-            model: ModelConfig {
-                model: "claude-3-opus-20240229".to_string(),
-                timeout: 60,
-                max_retries: 3,
-            },
-            max_tokens: 4096,
-            temperature: 0.0,
-            max_retries: 3,
+            model: None,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            max_retries: default_max_retries(),
         }
     }
 }
@@ -199,30 +231,61 @@ impl Default for LangfuseConfig {
 
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
-        let path = path.unwrap_or("config.json");
-        let file = File::open(path).context(format!("Failed to open config file: {}", path))?;
-        let reader = BufReader::new(file);
-        let config = serde_json::from_reader(reader).context("Failed to parse config file")?;
-        Ok(config)
+        use log::{info, debug};
+        
+        // If a specific path is provided via command line, use that
+        if let Some(path_str) = path {
+            debug!("Attempting to load config from command-line specified path: {}", path_str);
+            let file = File::open(path_str).context(format!("Failed to open config file: {}", path_str))?;
+            let reader = BufReader::new(file);
+            let config = serde_json::from_reader(reader).context("Failed to parse config file")?;
+            info!("Loaded configuration from: {}", path_str);
+            return Ok(config);
+        }
+        
+        // Try to find config in home directory first (.engines.config.json)
+        if let Ok(home_dir) = std::env::var("HOME") {
+            let home_config_path = format!("{}/.engines.config.json", home_dir);
+            debug!("Checking for config in home directory: {}", home_config_path);
+            if let Ok(file) = File::open(&home_config_path) {
+                let reader = BufReader::new(file);
+                match serde_json::from_reader(reader) {
+                    Ok(config) => {
+                        info!("Loaded configuration from home directory: {}", home_config_path);
+                        return Ok(config);
+                    },
+                    Err(e) => debug!("Failed to parse home directory config: {}", e)
+                }
+            } else {
+                debug!("No config found in home directory");
+            }
+        }
+        
+        // Try to find config in current directory (config.json)
+        debug!("Checking for config in current directory: config.json");
+        if let Ok(file) = File::open("config.json") {
+            let reader = BufReader::new(file);
+            match serde_json::from_reader(reader) {
+                Ok(config) => {
+                    info!("Loaded configuration from current directory: config.json");
+                    return Ok(config);
+                },
+                Err(e) => debug!("Failed to parse current directory config: {}", e)
+            }
+        } else {
+            debug!("No config found in current directory");
+        }
+        
+        // If no config file found, return an error
+        Err(anyhow::anyhow!("No config file found. Expected either ~/.engines.config.json, ./config.json, or config path provided via -c flag"))
     }
 
     pub fn default() -> Self {
         Self {
             anthropic_api_key: "".to_string(),
-            relevance: RelevanceConfig {
-                model: ModelConfig::default(),
-                max_workers: 256,
-                max_tokens: 4096,
-                timeout: 1800.0,
-                max_file_tokens: 100_000,
-            },
-            ranking: RankingConfig {
-                model: ModelConfig::default(),
-                num_rankings: 3,
-                max_workers: 4,
-                max_tokens: 4096,
-                temperature: 0.0,
-            },
+            model: default_model(),
+            relevance: RelevanceConfig::default(),
+            ranking: RankingConfig::default(),
             codebase: CodebaseConfig {
                 path: PathBuf::from("."),
                 problem_id: "custom_problem".to_string(),
@@ -237,15 +300,25 @@ impl Config {
         }
     }
     
-    /// Convert a ModelConfig to the LLMConfig format needed by LLM clients
-    pub fn to_llm_config(&self, model_config: &ModelConfig) -> LLMConfig {
+    /// Get the effective model name for a stage
+    pub fn get_model_for_stage(&self, stage_model: &Option<String>) -> String {
+        match stage_model {
+            Some(model) => model.clone(),
+            None => self.model.clone(),
+        }
+    }
+    
+    /// Convert to the LLMConfig format needed by LLM clients
+    pub fn to_llm_config(&self, stage_model: &Option<String>) -> LLMConfig {
+        let model = self.get_model_for_stage(stage_model);
+        
         LLMConfig {
             model_type: "anthropic".to_string(),
-            model: model_config.model.clone(),
+            model,
             api_key: self.anthropic_api_key.clone(),
             base_url: None,
-            timeout: model_config.timeout,
-            max_retries: model_config.max_retries,
+            timeout: 60, // Fixed default timeout
+            max_retries: 3, // Fixed default max retries
         }
     }
     

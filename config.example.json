@@ -1,58 +1,17 @@
 {
   "anthropic_api_key": "your_anthropic_api_key_here",
   "output_path": ".engines",
+  "model": "claude-3-7-sonnet-20250219",
   "codebase": {
     "path": "./path/to/your/codebase",
     "problem_id": "custom_problem",
-    "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
-    "exclusions_path": "exclusions.json"
+    "problem_statement": "Fix the bug that causes X to happen when Y is triggered."
   },
   "relevance": {
-    "model": {
-      "model": "claude-3-sonnet-20240229",
-      "timeout": 30,
-      "max_retries": 3
-    },
-    "max_workers": 8,
-    "max_tokens": 4096,
-    "timeout": 300.0,
-    "max_file_tokens": 100000
+    "model": "claude-3-5-haiku-20241022"
   },
   "ranking": {
-    "model": {
-      "model": "claude-3-sonnet-20240229",
-      "timeout": 30,
-      "max_retries": 3
-    },
-    "num_rankings": 3,
-    "max_workers": 4,
-    "max_tokens": 4096,
-    "temperature": 0.0
-  },
-  "dockerfile": {
-    "model": {
-      "model": "claude-3-opus-20240229",
-      "timeout": 60,
-      "max_retries": 3
-    },
-    "max_tokens": 4096,
-    "temperature": 0.0,
-    "max_retries": 3
-  },
-  "scripts": {
-    "model": {
-      "model": "claude-3-opus-20240229",
-      "timeout": 60,
-      "max_retries": 3
-    },
-    "max_tokens": 4096,
-    "temperature": 0.0,
-    "max_retries": 3
-  },
-  "container": {
-    "timeout": 300,
-    "parallel": false,
-    "remove": true
+    "model": "claude-3-5-haiku-20241022"
   },
   "observability": {
     "langfuse": {
@@ -60,8 +19,7 @@
       "host": "https://us.cloud.langfuse.com",
       "project_id": "engines-builder",
       "secret_key": "key_here",
-      "public_key": "key_here",
-      "trace_id": null
+      "public_key": "key_here"
     }
   }
 }

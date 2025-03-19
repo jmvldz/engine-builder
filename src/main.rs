@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use engine_builder::config::{Config, LLMConfig};
+use engine_builder::config::Config;
 use engine_builder::llm::langfuse;
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::problem::SWEBenchProblem;
@@ -13,7 +13,8 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[arg(short = 'f', long)]
+    /// Path to the config file. If not provided, will look for ~/.engines.config.json or ./config.json
+    #[arg(short = 'c', long, help = "Path to the config file. If not provided, will look for ~/.engines.config.json or ./config.json")]
     config_path: Option<String>,
 
     /// Path to the codebase to analyze
@@ -163,7 +164,7 @@ async fn main() -> Result<()> {
         config.anthropic_api_key = env::var("ANTHROPIC_API_KEY").unwrap_or_default();
         if config.anthropic_api_key.is_empty() {
             warn!("No Anthropic API key found in config or environment variables");
-            warn!("Please set ANTHROPIC_API_KEY environment variable or provide it in config.json");
+            warn!("Please set ANTHROPIC_API_KEY environment variable or provide it in your configuration file (either ~/.engines.config.json or ./config.json)");
         } else {
             info!("Using Anthropic API key from environment variable");
         }
@@ -223,7 +224,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Relevance => {
             info!("Running relevance assessment");
-            relevance::process_codebase(config.relevance, &config.codebase, problem.clone())
+            relevance::process_codebase(&config, &config.codebase, problem.clone())
                 .await?;
         }
         Command::Ranking => {
@@ -239,7 +240,7 @@ async fn main() -> Result<()> {
                 info!("Relevance decisions file not found. Ensure you've run the relevance step first with 'cargo run --release -- relevance'");
             }
             
-            ranking::process_rankings(config.ranking.clone(), problem.clone()).await?;
+            ranking::process_rankings(&config, problem.clone()).await?;
         }
         Command::Pipeline => {
             info!("Running full pipeline");
@@ -247,43 +248,45 @@ async fn main() -> Result<()> {
             // Run file selection first to generate codebase_tree_response.txt
             info!("Running file selection process");
             file_selection::process_file_selection(
-                config.relevance.clone(),
+                &config,
                 &config.codebase,
                 problem.clone(),
+                &config.get_trajectory_dir(&problem.id),
             )
             .await?;
             
             // Then process relevance using the existing codebase_tree_response.txt
-            relevance::process_codebase(config.relevance.clone(), &config.codebase, problem.clone())
+            relevance::process_codebase(&config, &config.codebase, problem.clone())
                 .await?;
             
             info!("Running file ranking");
-            ranking::process_rankings(config.ranking.clone(), problem.clone()).await?;
+            ranking::process_rankings(&config, problem.clone()).await?;
             info!("Generating lint and test scripts based on ranked files");
-            engine_builder::stages::scripts::generate_scripts_from_ranking(config.ranking.clone(), config.scripts.clone(), problem.clone()).await?;
+            engine_builder::stages::scripts::generate_scripts_from_ranking(&config, problem.clone()).await?;
             info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.dockerfile.clone(), problem.clone()).await?;
+            dockerfile::generate_dockerfile(&config, problem.clone()).await?;
         }
         Command::FileSelection => {
             info!("Running file selection process");
             file_selection::process_file_selection(
-                config.relevance,
+                &config,
                 &config.codebase,
                 problem.clone(),
+                &config.get_trajectory_dir(&problem.id),
             )
             .await?;
         }
         Command::Dockerfile => {
             info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.dockerfile.clone(), problem.clone()).await?;
+            dockerfile::generate_dockerfile(&config, problem.clone()).await?;
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
-            dockerfile::build_docker_image(&config.ranking, &problem, &tag, config.dockerfile.max_retries).await?;
+            dockerfile::build_docker_image(&config, &problem, &tag).await?;
         }
         Command::GenerateScripts => {
             info!("Generating lint and test scripts based on ranked files");
-            engine_builder::stages::scripts::generate_scripts_from_ranking(config.ranking.clone(), config.scripts, problem.clone()).await?;
+            engine_builder::stages::scripts::generate_scripts_from_ranking(&config, problem.clone()).await?;
         }
         Command::RunLint { tag } => {
             info!("Running lint container with image tag: {}", tag);
@@ -346,58 +349,15 @@ async fn main() -> Result<()> {
         Command::Chat { config_type, temperature } => {
             info!("Starting chat session with LLM");
             
-            // Create LLM config from the selected model and the global API key
+            // Create LLM config based on the selected config type
             let llm_config = match config_type.to_lowercase().as_str() {
-                "relevance" => {
-                    LLMConfig {
-                        model_type: "anthropic".to_string(),
-                        model: config.relevance.model.model.clone(),
-                        api_key: config.anthropic_api_key.clone(),
-                        base_url: None,
-                        timeout: config.relevance.model.timeout,
-                        max_retries: config.relevance.model.max_retries,
-                    }
-                },
-                "ranking" => {
-                    LLMConfig {
-                        model_type: "anthropic".to_string(),
-                        model: config.ranking.model.model.clone(),
-                        api_key: config.anthropic_api_key.clone(),
-                        base_url: None,
-                        timeout: config.ranking.model.timeout,
-                        max_retries: config.ranking.model.max_retries,
-                    }
-                },
-                "dockerfile" => {
-                    LLMConfig {
-                        model_type: "anthropic".to_string(),
-                        model: config.dockerfile.model.model.clone(),
-                        api_key: config.anthropic_api_key.clone(),
-                        base_url: None,
-                        timeout: config.dockerfile.model.timeout,
-                        max_retries: config.dockerfile.model.max_retries,
-                    }
-                },
-                "scripts" => {
-                    LLMConfig {
-                        model_type: "anthropic".to_string(),
-                        model: config.scripts.model.model.clone(),
-                        api_key: config.anthropic_api_key.clone(),
-                        base_url: None,
-                        timeout: config.scripts.model.timeout,
-                        max_retries: config.scripts.model.max_retries,
-                    }
-                },
+                "relevance" => config.to_llm_config(&config.relevance.model),
+                "ranking" => config.to_llm_config(&config.ranking.model),
+                "dockerfile" => config.to_llm_config(&config.dockerfile.model),
+                "scripts" => config.to_llm_config(&config.scripts.model),
                 _ => {
-                    eprintln!("Invalid config type: {}. Using relevance config.", config_type);
-                    LLMConfig {
-                        model_type: "anthropic".to_string(),
-                        model: config.relevance.model.model.clone(),
-                        api_key: config.anthropic_api_key.clone(),
-                        base_url: None,
-                        timeout: config.relevance.model.timeout,
-                        max_retries: config.relevance.model.max_retries,
-                    }
+                    eprintln!("Invalid config type: {}. Using default model.", config_type);
+                    config.to_llm_config(&None)
                 }
             };
             
