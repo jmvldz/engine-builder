@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
     text::{Span, Line},
-    Terminal, TerminalOptions, Viewport,
+    Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
 use tokio::sync::mpsc;
@@ -294,33 +294,19 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Convert output lines to ListItems with proper text formatting
-        let items: Vec<ListItem> = self.output_lines.iter()
-            .map(|line| {
-                // Create a ListItem with proper text formatting
-                // Process each character to ensure proper spacing
-                let chars: Vec<char> = line.chars().collect();
-                let mut spans = Vec::new();
-                
-                for (i, c) in chars.iter().enumerate() {
-                    spans.push(Span::raw(c.to_string()));
-                    
-                    // Add a space after each character except spaces and the last character
-                    if *c != ' ' && i < chars.len() - 1 && chars[i+1] != ' ' {
-                        spans.push(Span::raw(" ".to_string()));
-                    }
-                }
-                
-                ListItem::new(Line::from(spans))
-            })
-            .collect();
+        // Create a paragraph for each line with proper text formatting
+        let text_content = self.output_lines.iter()
+            .map(|line| line.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
         
-        // Create a list widget for output
-        let output_list = List::new(items)
-            .style(Style::default());
+        // Create a paragraph widget for output
+        let output_paragraph = Paragraph::new(text_content)
+            .style(Style::default())
+            .wrap(Wrap { trim: false });
         
-        // Render the list widget
-        frame.render_widget(output_list, inner_area);
+        // Render the paragraph widget
+        frame.render_widget(output_paragraph, inner_area);
     }
     
     /// Render help popup
@@ -392,19 +378,12 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal with custom configuration
+    // Set up terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
-    
-    // Create terminal with custom configuration
-    let mut terminal = Terminal::with_options(
-        backend,
-        TerminalOptions {
-            viewport: Viewport::Inline(0), // Use inline viewport with 0 lines above
-        },
-    )?;
+    let mut terminal = Terminal::new(backend)?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
