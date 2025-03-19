@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Span, Line},
+    text::{Line, Text},
     Terminal, TerminalOptions, Viewport,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -294,26 +294,19 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Convert output lines to ListItems
-        let items: Vec<ListItem> = self.output_lines.iter()
-            .map(|line| {
-                // Convert string to Line for better text rendering
-                let line_content = if line.is_empty() {
-                    Line::from("")
-                } else {
-                    Line::from(line.clone())
-                };
-                
-                ListItem::new(line_content)
-            })
-            .collect();
+        // Create a Text object from output lines
+        let mut text = Text::default();
+        for line in &self.output_lines {
+            text.extend(Text::from(line.clone() + "\n"));
+        }
         
-        // Create a list widget for output
-        let output_list = List::new(items)
-            .style(Style::default());
+        // Create a paragraph widget for output
+        let output_paragraph = Paragraph::new(text)
+            .style(Style::default())
+            .wrap(Wrap { trim: false });
         
-        // Render the list widget
-        frame.render_widget(output_list, inner_area);
+        // Render the paragraph widget
+        frame.render_widget(output_paragraph, inner_area);
     }
     
     /// Render help popup
@@ -422,7 +415,6 @@ pub async fn run_chat_ui(
                 _ => "? ",
             };
             
-            // Add the message with prefix to output lines
             // Process each line of the message separately to preserve newlines
             for (i, line) in message.content.lines().enumerate() {
                 // Add prefix only to the first line
@@ -431,10 +423,10 @@ pub async fn run_chat_ui(
                 } else {
                     app.output_lines.push_back(format!("   {}", line));
                 }
-                
-                // Add an empty line after each message for better readability
-                app.output_lines.push_back(String::new());
             }
+            
+            // Add an empty line after each message for better readability
+            app.output_lines.push_back(String::new());
             
             // Force terminal to redraw
             terminal.autoresize()?;
