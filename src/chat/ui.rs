@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
     text::{Span, Line},
-    Terminal,
+    Terminal, TerminalOptions, Viewport,
 };
 use std::{io, time::Duration, collections::VecDeque};
 use tokio::sync::mpsc;
@@ -392,15 +392,19 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal
+    // Set up terminal with custom configuration
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
     
-    // Disable mouse capture to avoid issues with text rendering
-    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture)?;
+    // Create terminal with custom configuration
+    let mut terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Inline(0), // Use inline viewport with 0 lines above
+        },
+    )?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
