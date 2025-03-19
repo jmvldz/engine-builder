@@ -235,8 +235,13 @@ impl ChatApp {
     
     /// Render input area
     fn render_input(&mut self, frame: &mut Frame, area: Rect) {
-        // No border for input area
-        let inner_area = area;
+        // Create a block for input with border
+        let input_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded);
+        
+        let inner_area = input_block.inner(area);
+        frame.render_widget(input_block, area);
         
         // Create input text with cursor
         let input_text = format!("> {}", self.input);
@@ -290,20 +295,8 @@ impl ChatApp {
                 _ => "? ",
             };
             
-            // Add the prefix only to the first line, then indent continuation lines
-            let lines: Vec<&str> = message.content.split('\n').collect();
-            if !lines.is_empty() {
-                // First line with prefix
-                formatted_text.push_str(&format!("{}{}\n", prefix, lines[0]));
-                
-                // Remaining lines with space indentation
-                for line in &lines[1..] {
-                    formatted_text.push_str(&format!("  {}\n", line));
-                }
-            }
-            
-            // Add an extra newline between messages
-            formatted_text.push('\n');
+            // Add the message with prefix and ensure proper spacing
+            formatted_text.push_str(&format!("{}{}\n\n", prefix, message.content));
         }
         
         // Create a paragraph from the formatted text
