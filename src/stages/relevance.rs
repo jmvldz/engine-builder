@@ -222,10 +222,14 @@ pub async fn process_codebase(
     info!("Starting relevance assessment");
     
     // Create LLM config for Anthropic
+    // Get the config with the API key
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
+    
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
         model: config.model.model.clone(),
-        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        api_key: global_config.anthropic_api_key.clone(),
         base_url: None,
         timeout: config.model.timeout,
         max_retries: config.model.max_retries,
@@ -296,7 +300,7 @@ pub async fn process_codebase(
 
     // Create a trajectory store for this problem
     let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
     let trajectory_store = TrajectoryStore::new(&trajectory_dir, &configured_problem)
         .context(format!(

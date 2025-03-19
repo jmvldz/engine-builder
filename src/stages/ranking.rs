@@ -149,8 +149,10 @@ async fn rank_problem_files(
     info!("Ranking files for problem: {}", problem.id);
 
     // Create a trajectory store for this problem
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_store =
-        TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
+        TrajectoryStore::new(&global_config.get_trajectory_dir(&problem.id), problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
@@ -370,7 +372,7 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
 
     // Create a trajectory store for this problem to check if previous steps were run
     let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem)
         .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
@@ -392,10 +394,14 @@ pub async fn process_rankings(config: RankingConfig, mut problem: SWEBenchProble
     }
 
     // Create LLM config for Anthropic
+    // Get the config with the API key
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
+    
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
         model: config.model.model.clone(),
-        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        api_key: global_config.anthropic_api_key.clone(),
         base_url: None,
         timeout: config.model.timeout,
         max_retries: config.model.max_retries,

@@ -2,15 +2,13 @@ use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use regex::Regex;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::config::{Config, DockerfileConfig, RankingConfig, RelevanceConfig};
+use crate::config::{Config, DockerfileConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{
     get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
-    DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT,
 };
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::RelevanceStatus;
@@ -25,7 +23,7 @@ pub async fn generate_dockerfile(
 
     // Create a trajectory store for this problem
     let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let trajectory_store =
         TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
@@ -90,7 +88,7 @@ pub async fn generate_dockerfile(
     info!("Generating Dockerfile from ranked files");
 
     // Generate the prompt for the LLM
-    let prompt = get_test_dockerfile_user_prompt(problem.get_problem_statement(), &file_contents);
+    let prompt = get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
 
     // Send the request to the LLM
     let llm_response = client
@@ -185,7 +183,8 @@ pub async fn generate_dockerfile(
     }
 
     // Save to the output directory under dockerfiles/{problem_id}/
-    let dockerfile_dir = Path::new(&global_config.get_dockerfile_path(&problem.id)).parent().unwrap();
+    let dockerfile_path_str = global_config.get_dockerfile_path(&problem.id);
+    let dockerfile_dir = Path::new(&dockerfile_path_str).parent().unwrap();
     fs::create_dir_all(dockerfile_dir).context(format!(
         "Failed to create Dockerfile directory at {:?}",
         dockerfile_dir
@@ -202,15 +201,16 @@ pub async fn generate_dockerfile(
     Ok(())
 }
 
-pub async fn build_docker_image_from_relevance(
-    config: &RelevanceConfig,
+/// Build a Docker image using the generated Dockerfile
+pub async fn build_docker_image(
+    _config: &crate::config::RankingConfig,
     problem: &SWEBenchProblem,
     tag: &str,
     max_retries: usize,
 ) -> Result<()> {
     // Create a trajectory store for this problem
     let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let trajectory_store =
         TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
@@ -253,7 +253,9 @@ pub async fn build_docker_image_from_relevance(
     let mut file_contents = Vec::new();
 
     for (path, _) in &relevant_files {
-        match problem.get_file(path) {
+        // Clone the problem first to allow for mutable borrowing in get_file
+        let mut problem_clone = problem.clone();
+        match problem_clone.get_file(path) {
             Ok(file_data) => {
                 file_contents.push((path.clone(), file_data.content.clone()));
             }
@@ -488,7 +490,7 @@ async fn update_dockerfile_from_error(
 
     // Generate the prompt for the LLM
     let prompt = get_dockerfile_error_user_prompt(
-        problem.get_problem_statement(),
+        &problem.problem_statement,
         &dockerfile_content,
         error_output,
     );
