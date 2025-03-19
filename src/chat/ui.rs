@@ -294,19 +294,17 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Convert output lines to ListItems with proper spacing
+        // Convert output lines to ListItems
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Add spaces between characters for better rendering
-                let mut spaced_text = String::new();
-                for c in line.chars() {
-                    spaced_text.push(c);
-                    if c != ' ' {
-                        spaced_text.push(' ');
-                    }
-                }
+                // Convert string to Line for better text rendering
+                let line_content = if line.is_empty() {
+                    Line::from("")
+                } else {
+                    Line::from(line.clone())
+                };
                 
-                ListItem::new(Line::from(vec![Span::raw(spaced_text)]))
+                ListItem::new(line_content)
             })
             .collect();
         
@@ -429,15 +427,13 @@ pub async fn run_chat_ui(
             for (i, line) in message.content.lines().enumerate() {
                 // Add prefix only to the first line
                 if i == 0 {
-                    app.output_lines.push_back(format!("{}{}", prefix, line));
+                    app.output_lines.push_back(format!("{} {}", prefix, line));
                 } else {
-                    app.output_lines.push_back(format!("  {}", line));
+                    app.output_lines.push_back(format!("   {}", line));
                 }
                 
-                // Add an empty line after each message line for better readability
-                if i < message.content.lines().count() - 1 {
-                    app.output_lines.push_back(String::new());
-                }
+                // Add an empty line after each message for better readability
+                app.output_lines.push_back(String::new());
             }
             
             // Force terminal to redraw
