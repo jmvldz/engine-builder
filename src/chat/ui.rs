@@ -297,8 +297,21 @@ impl ChatApp {
         // Convert output lines to ListItems with proper text formatting
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Create a ListItem with Line for proper text formatting
-                ListItem::new(Line::from(vec![Span::raw(line.clone())]))
+                // Create a ListItem with proper text formatting
+                // Process each character to ensure proper spacing
+                let chars: Vec<char> = line.chars().collect();
+                let mut spans = Vec::new();
+                
+                for (i, c) in chars.iter().enumerate() {
+                    spans.push(Span::raw(c.to_string()));
+                    
+                    // Add a space after each character except spaces and the last character
+                    if *c != ' ' && i < chars.len() - 1 && chars[i+1] != ' ' {
+                        spans.push(Span::raw(" ".to_string()));
+                    }
+                }
+                
+                ListItem::new(Line::from(spans))
             })
             .collect();
         
@@ -385,6 +398,9 @@ pub async fn run_chat_ui(
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    
+    // Disable mouse capture to avoid issues with text rendering
+    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture)?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
