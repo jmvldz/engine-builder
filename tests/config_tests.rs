@@ -35,7 +35,7 @@ fn test_llm_config_fields() {
     
     assert_eq!(llm_config.model_type, "openai");
     assert_eq!(llm_config.model, "gpt-4");
-    assert_eq!(llm_config.api_key, "test-key");
+    assert_eq!(llm_config.api_key, "dummy_key");
     assert_eq!(llm_config.base_url, Some("https://api.test.com".to_string()));
     assert_eq!(llm_config.timeout, 60);
     assert_eq!(llm_config.max_retries, 5);
