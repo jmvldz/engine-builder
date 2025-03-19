@@ -27,7 +27,7 @@ fn test_llm_config_fields() {
     let llm_config = LLMConfig {
         model_type: "openai".to_string(),
         model: "gpt-4".to_string(),
-        api_key: "test-key".to_string(),
+        api_key: "dummy_key".to_string(),
         base_url: Some("https://api.test.com".to_string()),
         timeout: 60,
         max_retries: 5,
@@ -58,7 +58,7 @@ fn test_config_from_file() {
     
     // Create a minimal test config file
     let config_json = r#"{
-        "anthropic_api_key": "test_api_key",
+        "anthropic_api_key": "dummy_key",
         "model": "test_model",
         "relevance": {
             "model": "test_model",
@@ -92,7 +92,7 @@ fn test_config_from_file() {
     let llm_config = config.to_llm_config(&config.relevance.model);
     assert_eq!(llm_config.model_type, "anthropic");
     assert_eq!(config.get_model_for_stage(&config.relevance.model), "test_model");
-    assert_eq!(config.anthropic_api_key, "test_api_key");
+    assert_eq!(config.anthropic_api_key, "dummy_key");
     assert_eq!(config.relevance.max_workers, 4);
     
     assert_eq!(config.codebase.path.to_str().unwrap(), "test_path");
