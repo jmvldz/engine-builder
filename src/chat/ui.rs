@@ -384,9 +384,6 @@ pub async fn run_chat_ui(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     
-    // Disable line wrapping to prevent text formatting issues
-    execute!(stdout, crossterm::terminal::DisableLineWrap)?;
-    
     // Create app state
     let mut app = ChatApp::new(tx);
     
@@ -444,7 +441,6 @@ pub async fn run_chat_ui(
     terminal::disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
-        crossterm::terminal::EnableLineWrap,
         LeaveAlternateScreen
     )?;
     terminal.show_cursor()?;
