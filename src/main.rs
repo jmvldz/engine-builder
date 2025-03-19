@@ -18,7 +18,7 @@ struct Cli {
     config_path: Option<String>,
 
     /// Path to the codebase to analyze
-    #[arg(short, long)]
+    #[arg(short = 'b', long)]
     codebase_path: Option<PathBuf>,
 
     /// Problem ID for trajectory storage
@@ -78,11 +78,11 @@ enum Command {
     /// Start an interactive chat session with the configured LLM
     Chat {
         /// Which LLM configuration to use (relevance, ranking, dockerfile, scripts)
-        #[arg(short, long, default_value = "relevance")]
+        #[arg(short = 't', long, default_value = "relevance")]
         config_type: String,
         
         /// Temperature for LLM responses (0.0-1.0)
-        #[arg(short, long)]
+        #[arg(short = 'e', long)]
         temperature: Option<f64>,
     },
 }

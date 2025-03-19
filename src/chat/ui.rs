@@ -29,11 +29,18 @@ pub struct ChatApp {
     pub running: bool,
     /// Show help
     pub show_help: bool,
+    /// Current working directory
+    pub cwd: String,
 }
 
 impl ChatApp {
     /// Create a new chat app
     pub fn new(tx: mpsc::Sender<String>) -> Self {
+        // Get the current working directory
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "/unknown".to_string());
+            
         Self {
             messages: Vec::new(),
             input: String::new(),
@@ -41,6 +48,7 @@ impl ChatApp {
             tx,
             running: true,
             show_help: false,
+            cwd,
         }
     }
 
@@ -72,6 +80,12 @@ impl ChatApp {
                                 let input_text = self.input.clone();
                                 if input_text.trim().eq_ignore_ascii_case("exit") {
                                     self.running = false;
+                                } else if input_text.trim().eq_ignore_ascii_case("/help") {
+                                    // Toggle help display
+                                    self.show_help = !self.show_help;
+                                    // Clear input
+                                    self.input.clear();
+                                    self.cursor_position = 0;
                                 } else {
                                     // Send input to chat handler
                                     if let Err(e) = self.tx.send(input_text.clone()).await {
@@ -165,20 +179,24 @@ impl ChatApp {
 
     /// Render the UI
     pub fn render(&mut self, frame: &mut Frame) {
-        // Create layout
+        // Create layout with header, output, and input areas
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),
-                Constraint::Length(3),
+                Constraint::Length(7),  // Static header (7 lines)
+                Constraint::Min(5),     // Output area (fills available space)
+                Constraint::Length(3),  // Fixed input box height
             ])
             .split(frame.size());
         
+        // Draw header
+        self.render_header(frame, chunks[0]);
+        
         // Draw chat history
-        self.render_messages(frame, chunks[0]);
+        self.render_messages(frame, chunks[1]);
         
         // Draw input area
-        self.render_input(frame, chunks[1]);
+        self.render_input(frame, chunks[2]);
         
         // Draw help popup if requested
         if self.show_help {
@@ -186,23 +204,43 @@ impl ChatApp {
         }
     }
     
+    /// Render static header
+    fn render_header(&self, frame: &mut Frame, area: Rect) {
+        // Create header text
+        let cwd_line = format!("│   cwd: {:<36} │", self.cwd);
+        let header_text = vec![
+            "╭────────────────────────────────────────────╮",
+            "│ ✻ Welcome to Engine Builder!              │",
+            "│                                            │",
+            "│   /help for help                           │",
+            "│                                            │",
+            &cwd_line,
+            "╰────────────────────────────────────────────╯",
+        ];
+        
+        // Create a paragraph from the header text
+        let header_widget = Paragraph::new(header_text.join("\n"))
+            .style(Style::default().fg(Color::Cyan));
+        
+        frame.render_widget(header_widget, area);
+    }
+    
     /// Render input area
     fn render_input(&mut self, frame: &mut Frame, area: Rect) {
         // Create a block for input
         let input_block = Block::default()
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .title("Input");
+            .border_type(ratatui::widgets::BorderType::Rounded);
         
         let inner_area = input_block.inner(area);
         frame.render_widget(input_block, area);
         
         // Create input text with cursor
-        let input_text = self.input.clone();
+        let input_text = format!("> {}", self.input);
         
         // Calculate visible portion of input
-        let scroll_offset = if self.cursor_position >= inner_area.width as usize {
-            self.cursor_position - inner_area.width as usize + 1
+        let scroll_offset = if self.cursor_position + 2 >= inner_area.width as usize {
+            self.cursor_position + 2 - inner_area.width as usize + 1
         } else {
             0
         };
@@ -216,12 +254,13 @@ impl ChatApp {
         let visible_chars = visible_text.chars().take(inner_area.width as usize).collect::<String>();
         
         // Create text widget
-        let input_paragraph = Paragraph::new(visible_chars);
+        let input_paragraph = Paragraph::new(visible_chars)
+            .style(Style::default().fg(Color::Yellow));
         frame.render_widget(input_paragraph, inner_area);
         
         // Draw cursor at current position
-        let cursor_x = if self.cursor_position >= scroll_offset {
-            (self.cursor_position - scroll_offset) as u16
+        let cursor_x = if self.cursor_position + 2 >= scroll_offset {
+            (self.cursor_position + 2 - scroll_offset) as u16
         } else {
             0
         };
@@ -237,7 +276,7 @@ impl ChatApp {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .title("Chat History");
+            .title("Output");
         
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
@@ -246,28 +285,14 @@ impl ChatApp {
         let mut formatted_text = String::new();
         
         for message in &self.messages {
-            let header = match message.role.as_str() {
-                "user" => "\n[You]: ",
-                "assistant" => "\n[Assistant]: ",
-                "system" => "\n[System]: ",
-                _ => "\n[Unknown]: ",
+            let prefix = match message.role.as_str() {
+                "user" => "> ",
+                "assistant" => "⏺ ",
+                "system" => "! ",
+                _ => "? ",
             };
             
-            formatted_text.push_str(header);
-            
-            // Handle tool execution messages specially to make them stand out
-            let content = if message.role == "assistant" && message.content.starts_with("I'll run the '") {
-                // Add a visual indicator for tool execution
-                format!("⚙️  RUNNING TOOL: {}", &message.content["I'll run the '".len()..])
-            } else if message.role == "assistant" && message.content.starts_with("Result:") {
-                // Add a visual indicator for tool results
-                format!("✅ {}", &message.content)
-            } else {
-                message.content.clone()
-            };
-            
-            formatted_text.push_str(&content);
-            formatted_text.push_str("\n");
+            formatted_text.push_str(&format!("{}{}\n", prefix, message.content));
         }
         
         // Create a paragraph from the formatted text
