@@ -301,7 +301,7 @@ pub async fn execute_tool(
             
             // Generate Dockerfile
             let result5 = stages::dockerfile::generate_dockerfile(
-                config.ranking.clone(),
+                config.dockerfile.clone(),
                 problem.clone(),
             )
             .await;
@@ -338,7 +338,7 @@ pub async fn execute_tool(
         }
         "dockerfile" => {
             let result = stages::dockerfile::generate_dockerfile(
-                config.ranking.clone(),
+                config.dockerfile.clone(),
                 problem.clone(),
             )
             .await;

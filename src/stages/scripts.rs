@@ -5,15 +5,87 @@ use std::fs;
 use std::path::Path;
 
 use crate::config::{Config, RankingConfig, RelevanceConfig, ScriptConfig};
-use crate::llm::client::create_client;
+use crate::llm::client::{create_client, TokenCost};
 use crate::llm::prompts::{get_lint_script_user_prompt, get_test_script_user_prompt, 
                          get_setup_script_user_prompt,
                          LINT_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
                          SETUP_SCRIPT_SYSTEM_PROMPT};
 use crate::models::problem::SWEBenchProblem;
+use crate::models::ranking::RankedCodebaseFile;
 use crate::models::relevance::RelevanceStatus;
 use crate::utils::trajectory_store::TrajectoryStore;
-use anyhow::anyhow;
+use std::ops::Add;
+
+// Add implementation for Add trait for TokenCost
+impl Add for TokenCost {
+    type Output = TokenCost;
+
+    fn add(self, other: TokenCost) -> TokenCost {
+        TokenCost {
+            prompt_cost: self.prompt_cost + other.prompt_cost,
+            completion_cost: self.completion_cost + other.completion_cost,
+            total_cost: self.total_cost + other.total_cost,
+        }
+    }
+}
+
+/// Generate scripts from ranking results
+pub async fn generate_scripts_from_ranking(
+    _config: RankingConfig,
+    script_config: ScriptConfig,
+    problem: SWEBenchProblem,
+) -> Result<()> {
+    info!("Starting script generation from ranking data");
+
+    // Create a trajectory store for this problem
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
+    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
+    
+    // Create a trajectory store
+    let trajectory_store =
+        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+            "Failed to create trajectory store for problem: {}",
+            problem.id
+        ))?;
+        
+    // Check if ranking exists
+    if !trajectory_store.ranking_exists() {
+        return Err(anyhow::anyhow!(
+            "Ranking not found for problem: {}. Run ranking step first.",
+            problem.id
+        ));
+    }
+    
+    // Load the ranking
+    let ranking_context = trajectory_store
+        .load_ranking()
+        .context(format!("Failed to load ranking for problem: {}", problem.id))?;
+        
+    // Extract ranked files
+    let ranked_files = ranking_context.ranked_files;
+    
+    if ranked_files.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No ranked files found for problem: {}",
+            problem.id
+        ));
+    }
+    
+    info!("Found {} ranked files", ranked_files.len());
+    
+    // Generate scripts using the relevance config
+    let relevance_config = RelevanceConfig {
+        model: script_config.model.clone(),
+        max_workers: 1,
+        max_tokens: script_config.max_tokens,
+        timeout: script_config.model.timeout as f64,
+        max_file_tokens: 100_000, // Large value to avoid truncation
+    };
+    
+    // Call the regular script generation function
+    generate_scripts(relevance_config, script_config, problem).await
+}
 
 /// Extract shell script content from LLM response
 pub fn extract_script(response: &str) -> Result<String> {
@@ -40,7 +112,7 @@ pub fn extract_script(response: &str) -> Result<String> {
 
 /// Generate lint and test scripts based on relevance data
 pub async fn generate_scripts(
-    config: RelevanceConfig,
+    _config: RelevanceConfig,
     script_config: ScriptConfig,
     mut problem: SWEBenchProblem,
 ) -> Result<()> {
@@ -48,7 +120,7 @@ pub async fn generate_scripts(
 
     // Create a trajectory store for this problem
     let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let scripts_dir = global_config.get_scripts_dir(&problem.id);
     
@@ -115,10 +187,14 @@ pub async fn generate_scripts(
         .collect();
 
     // Create LLM config for Anthropic
+    // Get the config with the API key
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
+    
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
         model: script_config.model.model.clone(),
-        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        api_key: global_config.anthropic_api_key.clone(),
         base_url: None,
         timeout: script_config.model.timeout,
         max_retries: script_config.model.max_retries,
@@ -131,7 +207,21 @@ pub async fn generate_scripts(
 
     // Generate setup script
     info!("Generating setup script...");
-    let setup_prompt = get_setup_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    // Create a Vec of RankedCodebaseFile from formatted_files
+    let ranked_files: Vec<RankedCodebaseFile> = formatted_files.iter()
+        .map(|path| RankedCodebaseFile {
+            path: path.clone(),
+            tokens: 0, // We don't need actual token counts here
+        })
+        .collect();
+        
+    // Prepare file_contents in the right format (path, content) without summaries
+    let file_contents_for_prompt: Vec<(String, String)> = file_contents
+        .iter()
+        .map(|(path, _, content)| (path.clone(), content.clone()))
+        .collect();
+        
+    let setup_prompt = get_setup_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
     
     // Create a combined prompt with system and user instructions
     let combined_setup_prompt = format!(
@@ -195,7 +285,7 @@ pub async fn generate_scripts(
 
     // Generate lint script
     info!("Generating lint script...");
-    let mut lint_prompt = get_lint_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    let mut lint_prompt = get_lint_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
     lint_prompt.push_str(&additional_context);
     
     // Create a combined prompt with system and user instructions
@@ -254,7 +344,7 @@ pub async fn generate_scripts(
 
     // Generate test script
     info!("Generating test script...");
-    let mut test_prompt = get_test_script_user_prompt(&problem.problem_statement, &formatted_files, &file_contents);
+    let mut test_prompt = get_test_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
     test_prompt.push_str(&additional_context);
     
     // Create a combined prompt with system and user instructions

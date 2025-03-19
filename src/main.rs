@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use engine_builder::config::Config;
+use engine_builder::config::{Config, LLMConfig};
 use engine_builder::llm::langfuse;
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::problem::SWEBenchProblem;
@@ -230,7 +230,7 @@ async fn main() -> Result<()> {
             info!("Running file ranking");
             // Verify that relevance assessments have been run
             let trajectory_store = engine_builder::utils::trajectory_store::TrajectoryStore::new(
-                &config.ranking.trajectory_store_dir, 
+                &config.get_trajectory_dir(&problem.id), 
                 &problem
             )?;
             
@@ -262,7 +262,7 @@ async fn main() -> Result<()> {
             info!("Generating lint and test scripts based on ranked files");
             engine_builder::stages::scripts::generate_scripts_from_ranking(config.ranking.clone(), config.scripts.clone(), problem.clone()).await?;
             info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.ranking.clone(), problem.clone()).await?;
+            dockerfile::generate_dockerfile(config.dockerfile.clone(), problem.clone()).await?;
         }
         Command::FileSelection => {
             info!("Running file selection process");
@@ -275,7 +275,7 @@ async fn main() -> Result<()> {
         }
         Command::Dockerfile => {
             info!("Generating test-focused Dockerfile based on ranked files");
-            dockerfile::generate_dockerfile(config.ranking.clone(), problem.clone()).await?;
+            dockerfile::generate_dockerfile(config.dockerfile.clone(), problem.clone()).await?;
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
@@ -349,7 +349,7 @@ async fn main() -> Result<()> {
             // Create LLM config from the selected model and the global API key
             let llm_config = match config_type.to_lowercase().as_str() {
                 "relevance" => {
-                    crate::config::LLMConfig {
+                    LLMConfig {
                         model_type: "anthropic".to_string(),
                         model: config.relevance.model.model.clone(),
                         api_key: config.anthropic_api_key.clone(),
@@ -359,7 +359,7 @@ async fn main() -> Result<()> {
                     }
                 },
                 "ranking" => {
-                    crate::config::LLMConfig {
+                    LLMConfig {
                         model_type: "anthropic".to_string(),
                         model: config.ranking.model.model.clone(),
                         api_key: config.anthropic_api_key.clone(),
@@ -369,7 +369,7 @@ async fn main() -> Result<()> {
                     }
                 },
                 "dockerfile" => {
-                    crate::config::LLMConfig {
+                    LLMConfig {
                         model_type: "anthropic".to_string(),
                         model: config.dockerfile.model.model.clone(),
                         api_key: config.anthropic_api_key.clone(),
@@ -379,7 +379,7 @@ async fn main() -> Result<()> {
                     }
                 },
                 "scripts" => {
-                    crate::config::LLMConfig {
+                    LLMConfig {
                         model_type: "anthropic".to_string(),
                         model: config.scripts.model.model.clone(),
                         api_key: config.anthropic_api_key.clone(),
@@ -390,7 +390,7 @@ async fn main() -> Result<()> {
                 },
                 _ => {
                     eprintln!("Invalid config type: {}. Using relevance config.", config_type);
-                    crate::config::LLMConfig {
+                    LLMConfig {
                         model_type: "anthropic".to_string(),
                         model: config.relevance.model.model.clone(),
                         api_key: config.anthropic_api_key.clone(),

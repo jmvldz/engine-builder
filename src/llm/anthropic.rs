@@ -208,9 +208,9 @@ impl AnthropicClient {
 
         // Fallback to hardcoded pricing
         match self.config.model.as_str() {
-            m if m.contains("claude-3-opus") => (0.015, 0.075),
-            m if m.contains("claude-3-sonnet") => (0.003, 0.015),
-            m if m.contains("claude-3-haiku") => (0.00025, 0.00125),
+            m if m.contains("claude-3-opus") || m.contains("claude-3-7-opus") => (0.015, 0.075),
+            m if m.contains("claude-3-sonnet") || m.contains("claude-3-7-sonnet") => (0.003, 0.015),
+            m if m.contains("claude-3-haiku") || m.contains("claude-3-5-haiku") => (0.00025, 0.00125),
             m if m.contains("claude-2") => (0.01, 0.03),
             m if m.contains("claude-instant") => (0.0008, 0.0024),
             _ => {
