@@ -6,9 +6,10 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap, Clear},
+    widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
+    text::{Span, Line, Text},
     Terminal,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -293,27 +294,19 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Create a paragraph with each character separated by a space
-        let mut formatted_content = String::new();
+        // Convert output lines to ListItems
+        let items: Vec<ListItem> = self.output_lines.iter()
+            .map(|line| {
+                ListItem::new(Line::from(vec![Span::raw(line.clone())]))
+            })
+            .collect();
         
-        for line in &self.output_lines {
-            for c in line.chars() {
-                formatted_content.push(c);
-                // Add a space after each character except spaces
-                if c != ' ' {
-                    formatted_content.push(' ');
-                }
-            }
-            formatted_content.push('\n');
-        }
+        // Create a list widget for output
+        let output_list = List::new(items)
+            .style(Style::default());
         
-        // Create a paragraph widget for output
-        let output_paragraph = Paragraph::new(formatted_content)
-            .style(Style::default())
-            .wrap(Wrap { trim: false });
-        
-        // Render the paragraph widget
-        frame.render_widget(output_paragraph, inner_area);
+        // Render the list widget
+        frame.render_widget(output_list, inner_area);
     }
     
     /// Render help popup
