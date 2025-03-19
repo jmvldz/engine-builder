@@ -9,7 +9,6 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    text::{Line, Text},
     Terminal, TerminalOptions, Viewport,
 };
 use std::{io, time::Duration, collections::VecDeque};
@@ -294,19 +293,20 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Create a Text object from output lines
-        let mut text = Text::default();
-        for line in &self.output_lines {
-            text.extend(Text::from(line.clone() + "\n"));
-        }
+        // Create a list of items for better text rendering
+        let items: Vec<ListItem> = self.output_lines.iter()
+            .map(|line| {
+                ListItem::new(line.clone())
+            })
+            .collect();
         
-        // Create a paragraph widget for output
-        let output_paragraph = Paragraph::new(text)
+        // Create a list widget for output
+        let output_list = List::new(items)
             .style(Style::default())
-            .wrap(Wrap { trim: false });
+            .block(Block::default());
         
-        // Render the paragraph widget
-        frame.render_widget(output_paragraph, inner_area);
+        // Render the list widget
+        frame.render_widget(output_list, inner_area);
     }
     
     /// Render help popup
@@ -388,7 +388,7 @@ pub async fn run_chat_ui(
     let mut terminal = Terminal::with_options(
         backend,
         TerminalOptions {
-            viewport: Viewport::Inline(10), // Use inline viewport with 10 lines above
+            viewport: Viewport::Inline(0), // Use inline viewport with no lines above
         },
     )?;
     
