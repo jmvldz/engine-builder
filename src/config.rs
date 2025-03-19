@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    pub anthropic_api_key: String,
     pub relevance: RelevanceConfig,
     pub ranking: RankingConfig,
     pub codebase: CodebaseConfig,
@@ -17,8 +18,30 @@ pub struct Config {
     pub container: ContainerConfig,
     #[serde(default)]
     pub observability: ObservabilityConfig,
+    #[serde(default)]
+    pub output_path: Option<String>,
 }
 
+/// Common model configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelConfig {
+    pub model: String,
+    pub timeout: u64, // in seconds
+    pub max_retries: u32,
+}
+
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            model: "claude-3-sonnet-20240229".to_string(),
+            timeout: 60,
+            max_retries: 3,
+        }
+    }
+}
+
+/// Legacy LLMConfig structure for compatibility with LLM client code
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
     pub model_type: String,
@@ -51,48 +74,41 @@ fn default_exclusions_path() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelevanceConfig {
-    pub llm: LLMConfig,
+    pub model: ModelConfig,
     pub max_workers: usize,
     pub max_tokens: usize,
     pub timeout: f64,
     pub max_file_tokens: usize,
-    pub trajectory_store_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RankingConfig {
-    pub llm: LLMConfig,
+    pub model: ModelConfig,
     pub num_rankings: usize,
     pub max_workers: usize,
     pub max_tokens: usize,
     pub temperature: f64,
-    pub trajectory_store_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockerfileConfig {
-    pub llm: LLMConfig,
+    pub model: ModelConfig,
     pub max_tokens: usize,
     pub temperature: f64,
-    pub output_path: String,
     pub max_retries: usize,
 }
 
 impl Default for DockerfileConfig {
     fn default() -> Self {
         Self {
-            llm: LLMConfig {
-                model_type: "anthropic".to_string(),
+            model: ModelConfig {
                 model: "claude-3-opus-20240229".to_string(),
-                api_key: "".to_string(),
-                base_url: None,
                 timeout: 60,
                 max_retries: 3,
             },
             max_tokens: 4096,
             temperature: 0.0,
-            output_path: "Dockerfile".to_string(),
             max_retries: 3,
         }
     }
@@ -101,7 +117,7 @@ impl Default for DockerfileConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ScriptConfig {
-    pub llm: LLMConfig,
+    pub model: ModelConfig,
     pub max_tokens: usize,
     pub temperature: f64,
     pub max_retries: usize,
@@ -110,11 +126,8 @@ pub struct ScriptConfig {
 impl Default for ScriptConfig {
     fn default() -> Self {
         Self {
-            llm: LLMConfig {
-                model_type: "anthropic".to_string(),
+            model: ModelConfig {
                 model: "claude-3-opus-20240229".to_string(),
-                api_key: "".to_string(),
-                base_url: None,
                 timeout: 60,
                 max_retries: 3,
             },
@@ -195,35 +208,20 @@ impl Config {
 
     pub fn default() -> Self {
         Self {
+            anthropic_api_key: "".to_string(),
             relevance: RelevanceConfig {
-                llm: LLMConfig {
-                    model_type: "anthropic".to_string(),
-                    model: "claude-3-sonnet-20240229".to_string(),
-                    api_key: "".to_string(),
-                    base_url: None,
-                    timeout: 30,
-                    max_retries: 3,
-                },
+                model: ModelConfig::default(),
                 max_workers: 256,
                 max_tokens: 4096,
                 timeout: 1800.0,
                 max_file_tokens: 100_000,
-                trajectory_store_dir: "data/trajectories".to_string(),
             },
             ranking: RankingConfig {
-                llm: LLMConfig {
-                    model_type: "anthropic".to_string(),
-                    model: "claude-3-sonnet-20240229".to_string(),
-                    api_key: "".to_string(),
-                    base_url: None,
-                    timeout: 30,
-                    max_retries: 3,
-                },
+                model: ModelConfig::default(),
                 num_rankings: 3,
                 max_workers: 4,
                 max_tokens: 4096,
                 temperature: 0.0,
-                trajectory_store_dir: "data/trajectories".to_string(),
             },
             codebase: CodebaseConfig {
                 path: PathBuf::from("."),
@@ -235,6 +233,39 @@ impl Config {
             scripts: ScriptConfig::default(),
             container: ContainerConfig::default(),
             observability: ObservabilityConfig::default(),
+            output_path: Some(".engines".to_string()),
         }
+    }
+    
+    /// Convert a ModelConfig to the LLMConfig format needed by LLM clients
+    pub fn to_llm_config(&self, model_config: &ModelConfig) -> LLMConfig {
+        LLMConfig {
+            model_type: "anthropic".to_string(),
+            model: model_config.model.clone(),
+            api_key: self.anthropic_api_key.clone(),
+            base_url: None,
+            timeout: model_config.timeout,
+            max_retries: model_config.max_retries,
+        }
+    }
+    
+    /// Get the output directory path
+    pub fn get_output_dir(&self) -> String {
+        self.output_path.clone().unwrap_or_else(|| ".engines".to_string())
+    }
+    
+    /// Get the trajectory store directory for a given problem ID
+    pub fn get_trajectory_dir(&self, problem_id: &str) -> String {
+        format!("{}/trajectories/{}", self.get_output_dir(), problem_id)
+    }
+    
+    /// Get the Dockerfile path for a given problem
+    pub fn get_dockerfile_path(&self, problem_id: &str) -> String {
+        format!("{}/dockerfiles/{}/Dockerfile", self.get_output_dir(), problem_id)
+    }
+    
+    /// Get the scripts directory for a given problem
+    pub fn get_scripts_dir(&self, problem_id: &str) -> String {
+        format!("{}/scripts/{}", self.get_output_dir(), problem_id)
     }
 }

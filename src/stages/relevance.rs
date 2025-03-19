@@ -5,7 +5,7 @@ use log::{debug, info, warn};
 use regex::Regex;
 use std::fs;
 
-use crate::config::{CodebaseConfig, RelevanceConfig};
+use crate::config::{CodebaseConfig, Config, RelevanceConfig};
 use crate::llm::client::{create_client, LLMClient};
 use crate::llm::prompts::get_relevance_user_prompt;
 use crate::models::exclusion::ExclusionConfig;
@@ -221,14 +221,24 @@ pub async fn process_codebase(
 ) -> Result<()> {
     info!("Starting relevance assessment");
     
+    // Create LLM config for Anthropic
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+    
     // Set up Langfuse trace for the entire relevance stage
     let trace_metadata = serde_json::json!({
         "problem_id": problem.id,
         "stage": "relevance",
         "max_workers": config.max_workers,
         "max_tokens": config.max_tokens,
-        "model_type": config.llm.model_type,
-        "model": config.llm.model,
+        "model_type": "anthropic",
+        "model": config.model.model,
     });
     
     // Create a new trace
@@ -249,7 +259,7 @@ pub async fn process_codebase(
     };
 
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
 
@@ -285,15 +295,17 @@ pub async fn process_codebase(
         .context("Failed to initialize problem")?;
 
     // Create a trajectory store for this problem
-    let trajectory_store = TrajectoryStore::new(&config.trajectory_store_dir, &configured_problem)
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &configured_problem)
         .context(format!(
             "Failed to create trajectory store for problem: {}",
             configured_problem.id
         ))?;
 
     // Load file patterns from previously generated response file
-    let response_path = Path::new(&config.trajectory_store_dir)
-        .join(&configured_problem.id)
+    let response_path = Path::new(&trajectory_dir)
         .join("codebase_tree_response.txt");
 
     // Read existing file selection response
@@ -309,7 +321,7 @@ pub async fn process_codebase(
 
     // Save the file patterns for future reference
     save_file_patterns(
-        &config.trajectory_store_dir,
+        &trajectory_dir,
         &configured_problem,
         &file_patterns,
     )?;

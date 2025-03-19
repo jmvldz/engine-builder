@@ -5,7 +5,7 @@ use serde_json;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{CodebaseConfig, RelevanceConfig};
+use crate::config::{CodebaseConfig, Config, RelevanceConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::get_codebase_tree_user_prompt;
 use crate::models::exclusion::ExclusionConfig;
@@ -94,8 +94,18 @@ pub async fn run_file_selection(
 ) -> Result<(FilePatternSelection, crate::llm::client::TokenUsage)> {
     info!("Starting file selection process");
 
+    // Create LLM config for Anthropic
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+
     // Create the LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
 
@@ -191,8 +201,10 @@ pub async fn run_file_selection(
         .context("Failed to get file selection from LLM")?;
 
     // Save the LLM response to a file
-    let response_path = Path::new(&config.trajectory_store_dir)
-        .join(&configured_problem.id)
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let trajectory_dir = global_config.get_trajectory_dir(&configured_problem.id);
+    let response_path = Path::new(&trajectory_dir)
         .join("codebase_tree_response.txt");
 
     // Write the LLM response to a file
@@ -219,12 +231,12 @@ pub async fn run_file_selection(
 
 /// Save file patterns to the trajectory store
 pub fn save_file_patterns(
-    trajectory_store_dir: &str,
+    trajectory_dir: &str,
     problem: &SWEBenchProblem,
     file_patterns: &FilePatternSelection,
 ) -> Result<()> {
     // Create the trajectory store dir if it doesn't exist
-    let problem_dir = Path::new(trajectory_store_dir).join(&problem.id);
+    let problem_dir = Path::new(trajectory_dir);
     fs::create_dir_all(&problem_dir).context(format!(
         "Failed to create trajectory store directory: {:?}",
         problem_dir
@@ -264,8 +276,18 @@ pub async fn process_file_selection(
     let (file_patterns, token_usage) =
         run_file_selection(&config, codebase_config, &problem).await?;
 
+    // Create LLM config for Anthropic - just for pricing info
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+
     // Create the LLM client to access pricing information
-    let client = create_client(&config.llm)
+    let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
     let cost = client.calculate_cost(&token_usage);

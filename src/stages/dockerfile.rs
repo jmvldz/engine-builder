@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::config::{RankingConfig, RelevanceConfig};
+use crate::config::{Config, DockerfileConfig, RankingConfig, RelevanceConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{
     get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
@@ -18,14 +18,17 @@ use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate a test-focused Dockerfile based on ranked files
 pub async fn generate_dockerfile(
-    config: RankingConfig,
+    config: DockerfileConfig,
     mut problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting test-focused Dockerfile generation");
 
     // Create a trajectory store for this problem
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let trajectory_store =
-        TrajectoryStore::new(&config.trajectory_store_dir, &problem).context(format!(
+        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
@@ -33,25 +36,18 @@ pub async fn generate_dockerfile(
     // Check if ranking exists
     if !trajectory_store.ranking_exists() {
         return Err(anyhow::anyhow!(
-            "No ranking found for problem: {}. Run the ranking step first.",
+            "Ranking not found for problem: {}. Run ranking step first.",
             problem.id
         ));
     }
 
-    // Load ranking
-    let ranking = trajectory_store.load_ranking().context(format!(
-        "Failed to load ranking for problem: {}",
-        problem.id
-    ))?;
+    // Load the ranking
+    let ranking_context = trajectory_store
+        .load_ranking()
+        .context(format!("Failed to load ranking for problem: {}", problem.id))?;
 
-    // Get ranked files (limit to top N files to avoid context overflow)
-    let max_files = 10; // Limiting to top 5 files
-    let ranked_files = ranking
-        .ranked_files
-        .iter()
-        .take(max_files)
-        .cloned()
-        .collect::<Vec<_>>();
+    // Extract ranked files
+    let ranked_files = ranking_context.ranked_files;
 
     if ranked_files.is_empty() {
         return Err(anyhow::anyhow!(
@@ -76,60 +72,54 @@ pub async fn generate_dockerfile(
         }
     }
 
+    // Create LLM config for Anthropic
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+
     // Create LLM client
-    let client = create_client(&config.llm)
+    let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
 
-    // Generate test-focused prompt
-    let prompt =
-        get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
+    info!("Generating Dockerfile from ranked files");
 
-    // Generate test-focused Dockerfile
-    info!("Generating test-focused Dockerfile...");
-    // Create a combined prompt with system and user instructions
-    let combined_prompt = format!(
-        "System instructions:\n{}\n\nUser request:\n{}",
-        TEST_DOCKERFILE_SYSTEM_PROMPT, prompt
-    );
+    // Generate the prompt for the LLM
+    let prompt = get_test_dockerfile_user_prompt(problem.get_problem_statement(), &file_contents);
 
-    // Save the prompt to a file in the trajectory store
-    let prompt_path = trajectory_store.problem_dir().join("dockerfile-prompt.txt");
-    fs::write(&prompt_path, &format!("{}\n\n{}", TEST_DOCKERFILE_SYSTEM_PROMPT, prompt))
-        .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
-    info!("Dockerfile prompt saved to {:?}", prompt_path);
-
-    // Add tracing metadata
-    let metadata = serde_json::json!({
-        "problem_id": problem.id,
-        "stage": "dockerfile_generation",
-        "temperature": config.temperature,
-        "num_files": ranked_files.len(),
-    });
-
-    let response = client
+    // Send the request to the LLM
+    let llm_response = client
         .completion_with_tracing(
-            &combined_prompt,
+            &prompt,
             config.max_tokens,
             config.temperature,
-            None, // Auto-generate trace ID
+            None,
             Some(&format!("dockerfile_{}", problem.id)),
-            Some(metadata),
+            None,
         )
         .await
-        .context("Failed to generate test-focused Dockerfile")?;
+        .context("Failed to get Dockerfile generation from LLM")?;
 
-    // Track usage
-    let usage = response.usage;
-    let cost = client.calculate_cost(&usage);
-    info!("Test Dockerfile generation LLM usage: {}", usage);
-    info!("Test Dockerfile generation LLM cost: {}", cost);
+    // Extract the Dockerfile content
+    let dockerfile_content = llm_response.content.clone();
 
-    // Extract Dockerfile content
-    let dockerfile_content = extract_dockerfile(&response.content)
-        .context("Failed to extract Dockerfile content from LLM response")?;
+    // Try to extract the Dockerfile content from markdown code blocks
+    let dockerfile_content = match extract_dockerfile_from_response(&dockerfile_content) {
+        Some(content) => content,
+        None => {
+            warn!("Could not extract Dockerfile from LLM response, using raw response");
+            dockerfile_content
+        }
+    };
 
-    // Check if scripts exist and append commands to copy them into the Docker image
+    info!("Generated Dockerfile content");
+
+    // Check if there are any setup/lint/test scripts from the scripts stage
     let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
     let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
     let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
@@ -167,10 +157,9 @@ pub async fn generate_dockerfile(
         || test_script_path.exists()
         || single_test_script_path.exists()
     {
-        script_commands.push_str("\n# Make scripts executable\nRUN chmod +x ");
+        script_commands.push_str("RUN chmod +x ");
 
         let mut executables = Vec::new();
-
         if setup_script_path.exists() {
             executables.push("/usr/local/bin/setup-script.sh");
         }
@@ -195,8 +184,14 @@ pub async fn generate_dockerfile(
         final_dockerfile_content.push_str(&script_commands);
     }
 
-    // Save to the trajectory store directory
-    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
+    // Save to the output directory under dockerfiles/{problem_id}/
+    let dockerfile_dir = Path::new(&global_config.get_dockerfile_path(&problem.id)).parent().unwrap();
+    fs::create_dir_all(dockerfile_dir).context(format!(
+        "Failed to create Dockerfile directory at {:?}",
+        dockerfile_dir
+    ))?;
+    
+    let dockerfile_path = Path::new(&global_config.get_dockerfile_path(&problem.id)).to_path_buf();
     fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
         "Failed to write test-focused Dockerfile to {:?}",
         dockerfile_path
@@ -207,129 +202,23 @@ pub async fn generate_dockerfile(
     Ok(())
 }
 
-/// Extract Dockerfile content from LLM response
-pub fn extract_dockerfile(response: &str) -> Result<String> {
-    // Try to extract content between ```dockerfile and ``` tags
-    let re = Regex::new(r"```dockerfile\s*([\s\S]*?)\s*```").unwrap();
-    if let Some(captures) = re.captures(response) {
-        if let Some(content) = captures.get(1) {
-            return Ok(content.as_str().to_string());
-        }
-    }
-
-    // If that fails, try to extract content between ``` and ``` tags
-    let re = Regex::new(r"```\s*([\s\S]*?)\s*```").unwrap();
-    if let Some(captures) = re.captures(response) {
-        if let Some(content) = captures.get(1) {
-            return Ok(content.as_str().to_string());
-        }
-    }
-
-    // If all else fails, just return the entire response
-    warn!("Failed to extract Dockerfile content from response, returning entire response");
-    Ok(response.to_string())
-}
-
-/// Update a Dockerfile based on build errors using LLM suggestions
-pub async fn update_dockerfile_from_error(
-    config: &RankingConfig,
+pub async fn build_docker_image_from_relevance(
+    config: &RelevanceConfig,
     problem: &SWEBenchProblem,
-    dockerfile_path: &Path,
-    error_message: &str,
-) -> Result<String> {
-    info!("Updating Dockerfile based on build error");
-
-    // Read the current Dockerfile content
-    let dockerfile_content = fs::read_to_string(dockerfile_path).context(format!(
-        "Failed to read Dockerfile at {:?}",
-        dockerfile_path
-    ))?;
-
-    // Create LLM client
-    let client = create_client(&config.llm)
-        .await
-        .context("Failed to create LLM client")?;
-
-    // Generate prompt for error analysis
-    let prompt = get_dockerfile_error_user_prompt(
-        &problem.problem_statement,
-        &dockerfile_content,
-        error_message,
-    );
-
-    // Create a combined prompt with system and user instructions
-    let combined_prompt = format!(
-        "System instructions:\n{}\n\nUser request:\n{}",
-        DOCKERFILE_ERROR_SYSTEM_PROMPT, prompt
-    );
-
-    // Save the prompt to a file in the trajectory store
-    let prompt_dir = Path::new(dockerfile_path).parent().unwrap_or(Path::new("."));
-    let prompt_path = prompt_dir.join("dockerfile-error-prompt.txt");
-    fs::write(&prompt_path, &format!("{}\n\n{}", DOCKERFILE_ERROR_SYSTEM_PROMPT, prompt))
-        .context(format!("Failed to write Dockerfile error prompt to {:?}", prompt_path))?;
-    info!("Dockerfile error prompt saved to {:?}", prompt_path);
-
-    info!("Asking LLM for Dockerfile fixes...");
-    
-    // Add tracing metadata
-    let metadata = serde_json::json!({
-        "problem_id": problem.id,
-        "stage": "dockerfile_error_fix",
-        "temperature": config.temperature,
-        "error_length": error_message.len(),
-    });
-
-    let response = client
-        .completion_with_tracing(
-            &combined_prompt,
-            config.max_tokens,
-            config.temperature,
-            None, // Auto-generate trace ID
-            Some(&format!("dockerfile_error_fix_{}", problem.id)),
-            Some(metadata),
-        )
-        .await
-        .context("Failed to get Dockerfile fix suggestions")?;
-
-    // Track usage
-    let usage = response.usage;
-    let cost = client.calculate_cost(&usage);
-    info!("Dockerfile error analysis LLM usage: {}", usage);
-    info!("Dockerfile error analysis LLM cost: {}", cost);
-
-    // Extract updated Dockerfile content
-    let updated_dockerfile = extract_dockerfile(&response.content)
-        .context("Failed to extract updated Dockerfile from LLM response")?;
-
-    Ok(updated_dockerfile)
-}
-
-/// Build a Docker image from the generated Dockerfile
-/// Generate a test-focused Dockerfile based on relevance data
-pub async fn generate_dockerfile_from_relevance(
-    config: RelevanceConfig,
-    mut problem: SWEBenchProblem,
+    tag: &str,
+    max_retries: usize,
 ) -> Result<()> {
-    info!("Starting test-focused Dockerfile generation from relevance data");
-
     // Create a trajectory store for this problem
+    let config_ref = std::env::var("CONFIG").unwrap_or_default();
+    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_default();
+    let trajectory_dir = global_config.get_trajectory_dir(&problem.id);
     let trajectory_store =
-        TrajectoryStore::new(&config.trajectory_store_dir, &problem).context(format!(
+        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
 
-    // Check if relevance decisions exist in the consolidated file
-    let relevance_decisions_path = trajectory_store.relevance_decisions_path();
-    if !relevance_decisions_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No relevance decisions found for problem: {}. Run the relevance step first.",
-            problem.id
-        ));
-    }
-
-    // Load all relevance decisions and find relevant files
+    // Load all relevance decisions
     let all_decisions = trajectory_store
         .load_all_relevance_decisions()
         .context(format!(
@@ -363,307 +252,122 @@ pub async fn generate_dockerfile_from_relevance(
     // Load file contents
     let mut file_contents = Vec::new();
 
-    for (file_path, _) in &relevant_files {
-        match problem.get_file(file_path) {
+    for (path, _) in &relevant_files {
+        match problem.get_file(path) {
             Ok(file_data) => {
-                file_contents.push((file_path.clone(), file_data.content.clone()));
+                file_contents.push((path.clone(), file_data.content.clone()));
             }
             Err(e) => {
-                warn!("Failed to read file {}: {}", file_path, e);
+                warn!("Failed to read file {}: {}", path, e);
             }
         }
     }
 
-    // Create LLM client
-    let client = create_client(&config.llm)
-        .await
-        .context("Failed to create LLM client")?;
+    let mut retry_count = 0;
+    while retry_count <= max_retries {
+        let dockerfile_path = Path::new(&global_config.get_dockerfile_path(&problem.id)).to_path_buf();
 
-    // Generate test-focused prompt
-    // Convert relevant_files to a format similar to ranked_files
-    let formatted_files = relevant_files
-        .iter()
-        .map(|(path, _summary)| {
-            crate::models::ranking::RankedCodebaseFile {
-                path: path.clone(),
-                tokens: 0, // Using a placeholder value since we don't need token counts here
-            }
-        })
-        .collect::<Vec<_>>();
+        if retry_count > 0 {
+            info!("Retry {} of {}", retry_count, max_retries);
+            println!("\nRetry {} of {}", retry_count, max_retries);
+        }
 
-    let prompt = get_test_dockerfile_user_prompt(
-        &problem.problem_statement,
-        &formatted_files,
-        &file_contents,
-    );
+        // Use the repository directory as the Docker context
+        // This makes files from the repository available during the build
+        let docker_context_dir = problem
+            .get_codebase_path()
+            .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
+        info!(
+            "Using repository as Docker context: {:?}",
+            docker_context_dir
+        );
 
-    // Generate test-focused Dockerfile
-    info!("Generating test-focused Dockerfile...");
-    // Create a combined prompt with system and user instructions
-    let combined_prompt = format!(
-        "System instructions:\n{}\n\nUser request:\n{}",
-        TEST_DOCKERFILE_SYSTEM_PROMPT, prompt
-    );
-
-    // Save the prompt to a file in the trajectory store
-    let prompt_path = trajectory_store.problem_dir().join("dockerfile-prompt.txt");
-    fs::write(&prompt_path, &format!("{}\n\n{}", TEST_DOCKERFILE_SYSTEM_PROMPT, prompt))
-        .context(format!("Failed to write Dockerfile prompt to {:?}", prompt_path))?;
-    info!("Dockerfile prompt saved to {:?}", prompt_path);
-
-    // Add tracing metadata
-    let metadata = serde_json::json!({
-        "problem_id": problem.id,
-        "stage": "dockerfile_from_relevance",
-        "temperature": 0.0,
-        "num_files": relevant_files.len(),
-    });
-
-    let response = client
-        .completion_with_tracing(
-            &combined_prompt,
-            config.max_tokens,
-            0.0,
-            None, // Auto-generate trace ID
-            Some(&format!("dockerfile_from_relevance_{}", problem.id)),
-            Some(metadata),
-        )
-        .await
-        .context("Failed to generate test-focused Dockerfile")?;
-
-    // Track usage
-    let usage = response.usage;
-    let cost = client.calculate_cost(&usage);
-    info!("Test Dockerfile generation LLM usage: {}", usage);
-    info!("Test Dockerfile generation LLM cost: {}", cost);
-
-    // Extract Dockerfile content
-    let dockerfile_content = extract_dockerfile(&response.content)
-        .context("Failed to extract Dockerfile content from LLM response")?;
-
-    // Check if scripts exist and append commands to copy them into the Docker image
-    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
-    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
-    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
-    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
-
-    let mut final_dockerfile_content = dockerfile_content.clone();
-
-    // Initialize a string to hold the script commands
-    let mut script_commands = String::new();
-
-    // Start building the script commands
-    script_commands.push_str("\n# Copy scripts\n");
-
-    // Add each script that exists
-    if setup_script_path.exists() {
-        script_commands.push_str("COPY setup-script.sh /usr/local/bin/setup-script.sh\n");
-    }
-
-    if lint_script_path.exists() {
-        script_commands.push_str("COPY lint-script.sh /usr/local/bin/lint-script.sh\n");
-    }
-
-    if test_script_path.exists() {
-        script_commands.push_str("COPY test-script.sh /usr/local/bin/test-script.sh\n");
-    }
-
-    if single_test_script_path.exists() {
-        script_commands
-            .push_str("COPY single-test-script.sh /usr/local/bin/single-test-script.sh\n");
-    }
-
-    // Add the RUN chmod command if any scripts exist
-    if setup_script_path.exists()
-        || lint_script_path.exists()
-        || test_script_path.exists()
-        || single_test_script_path.exists()
-    {
-        script_commands.push_str("\n# Make scripts executable\nRUN chmod +x ");
-
-        let mut executables = Vec::new();
+        // Copy scripts to the Docker context if they exist
+        let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
+        let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
+        let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
+        let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
 
         if setup_script_path.exists() {
-            executables.push("/usr/local/bin/setup-script.sh");
+            let dest_path = docker_context_dir.join("setup-script.sh");
+            fs::copy(&setup_script_path, &dest_path).context(format!(
+                "Failed to copy setup script to Docker context: {:?}",
+                dest_path
+            ))?;
+            info!("Copied setup script to Docker context: {:?}", dest_path);
         }
 
         if lint_script_path.exists() {
-            executables.push("/usr/local/bin/lint-script.sh");
+            let dest_path = docker_context_dir.join("lint-script.sh");
+            fs::copy(&lint_script_path, &dest_path).context(format!(
+                "Failed to copy lint script to Docker context: {:?}",
+                dest_path
+            ))?;
+            info!("Copied lint script to Docker context: {:?}", dest_path);
         }
 
         if test_script_path.exists() {
-            executables.push("/usr/local/bin/test-script.sh");
+            let dest_path = docker_context_dir.join("test-script.sh");
+            fs::copy(&test_script_path, &dest_path).context(format!(
+                "Failed to copy test script to Docker context: {:?}",
+                dest_path
+            ))?;
+            info!("Copied test script to Docker context: {:?}", dest_path);
         }
 
         if single_test_script_path.exists() {
-            executables.push("/usr/local/bin/single-test-script.sh");
+            let dest_path = docker_context_dir.join("single-test-script.sh");
+            fs::copy(&single_test_script_path, &dest_path).context(format!(
+                "Failed to copy single test script to Docker context: {:?}",
+                dest_path
+            ))?;
+            info!(
+                "Copied single test script to Docker context: {:?}",
+                dest_path
+            );
         }
 
-        script_commands.push_str(&executables.join(" "));
-        script_commands.push_str("\n");
-
-        info!("Found scripts, adding them to the Dockerfile");
-
-        final_dockerfile_content.push_str(&script_commands);
-    }
-
-    // Save to the trajectory store directory
-    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
-    fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
-        "Failed to write test-focused Dockerfile to {:?}",
-        dockerfile_path
-    ))?;
-
-    info!("Test-focused Dockerfile saved to {:?}", dockerfile_path);
-
-    Ok(())
-}
-
-pub async fn build_docker_image_from_relevance(
-    config: &RelevanceConfig,
-    problem: &SWEBenchProblem,
-    tag: &str,
-    max_retries: usize,
-) -> Result<()> {
-    info!("Building Docker image with tag: {}", tag);
-
-    // Create a trajectory store for this problem
-    let trajectory_store =
-        TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
-
-    // Check if Dockerfile exists
-    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
-    if !dockerfile_path.exists() {
-        return Err(anyhow!(
-            "Dockerfile not found at {:?}. Generate it first with the 'dockerfile' command.",
-            dockerfile_path
-        ));
-    }
-
-    info!("Using Dockerfile at {:?}", dockerfile_path);
-
-    // Use the repository directory as the Docker context
-    // This makes files from the repository available during the build
-    let docker_context_dir = problem
-        .get_codebase_path()
-        .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
-    info!(
-        "Using repository as Docker context: {:?}",
-        docker_context_dir
-    );
-
-    // Copy scripts to the Docker context if they exist
-    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
-    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
-    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
-    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
-
-    if setup_script_path.exists() {
-        let dest_path = docker_context_dir.join("setup-script.sh");
-        fs::copy(&setup_script_path, &dest_path).context(format!(
-            "Failed to copy setup script to Docker context: {:?}",
+        // Copy the Dockerfile to the Docker context
+        let dest_path = docker_context_dir.join("Dockerfile");
+        fs::copy(&dockerfile_path, &dest_path).context(format!(
+            "Failed to copy Dockerfile to Docker context: {:?}",
             dest_path
         ))?;
-        info!("Copied setup script to Docker context: {:?}", dest_path);
-    }
+        info!("Copied Dockerfile to Docker context: {:?}", dest_path);
 
-    if lint_script_path.exists() {
-        let dest_path = docker_context_dir.join("lint-script.sh");
-        fs::copy(&lint_script_path, &dest_path).context(format!(
-            "Failed to copy lint script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!("Copied lint script to Docker context: {:?}", dest_path);
-    }
+        // Build the Docker image
+        info!("Building Docker image with tag: {}", tag);
+        println!("\nBuilding Docker image with tag: {}", tag);
 
-    if test_script_path.exists() {
-        let dest_path = docker_context_dir.join("test-script.sh");
-        fs::copy(&test_script_path, &dest_path).context(format!(
-            "Failed to copy test script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!("Copied test script to Docker context: {:?}", dest_path);
-    }
+        let mut docker_build_command = Command::new("docker");
+        docker_build_command.arg("build");
+        docker_build_command.arg("-t");
+        docker_build_command.arg(tag);
+        docker_build_command.arg(".");
+        docker_build_command.current_dir(&docker_context_dir);
 
-    if single_test_script_path.exists() {
-        let dest_path = docker_context_dir.join("single-test-script.sh");
-        fs::copy(&single_test_script_path, &dest_path).context(format!(
-            "Failed to copy single test script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!(
-            "Copied single test script to Docker context: {:?}",
-            dest_path
-        );
-    }
+        // For capturing stderr
+        docker_build_command.stderr(Stdio::piped());
 
-    // Try building the Docker image, with retries if it fails
-    let mut retry_count = 0;
+        info!("Running docker build command: {:?}", docker_build_command);
+        println!("\nRunning docker build...");
 
-    loop {
-        // Run docker build command with streaming output
-        println!(
-            "\n=== Docker Build (Attempt {}/{}) ===",
-            retry_count + 1,
-            max_retries + 1
-        );
-        info!(
-            "Running docker build (attempt {}/{})...",
-            retry_count + 1,
-            max_retries + 1
-        );
-
-        let mut child = Command::new("docker")
-            .arg("build")
-            .arg("-t")
-            .arg(tag)
-            .arg("-f")
-            .arg(&dockerfile_path)
-            .arg(docker_context_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+        let build_process = docker_build_command
             .spawn()
-            .context("Failed to execute docker build command")?;
+            .context("Failed to spawn docker build process")?;
 
-        // Stream stdout in real-time
-        let stdout = child.stdout.take().expect("Failed to capture stdout");
-        let stdout_reader = BufReader::new(stdout);
-        let stderr = child.stderr.take().expect("Failed to capture stderr");
-        let stderr_reader = BufReader::new(stderr);
+        let build_output = build_process
+            .wait_with_output()
+            .context("Failed to wait for docker build process")?;
 
-        // Collect stderr for potential error analysis
-        let mut error_output = String::new();
-
-        // Create a thread to read and display stdout
-        let stdout_handle = std::thread::spawn(move || {
-            for line in stdout_reader.lines() {
-                if let Ok(line) = line {
-                    println!("[stdout] {}", line);
-                }
-            }
-        });
-
-        // Read and display stderr, also collecting it for error analysis if needed
-        for line in stderr_reader.lines() {
-            if let Ok(line) = line {
-                println!("[stderr] {}", line);
-                error_output.push_str(&line);
-                error_output.push('\n');
-            }
+        // Log stderr for debugging
+        let error_output = String::from_utf8_lossy(&build_output.stderr).into_owned();
+        if !error_output.is_empty() {
+            warn!("Docker build stderr: {}", error_output);
         }
 
-        // Wait for stdout thread to complete
-        stdout_handle.join().expect("Failed to join stdout thread");
-
-        // Wait for the command to complete and get the exit status
-        let status = child
-            .wait()
-            .context("Failed to wait for docker build command")?;
-
-        if status.success() {
+        // Check if the build was successful
+        if build_output.status.success() {
             println!("\nDocker build completed successfully!");
             info!("Docker build completed successfully");
             info!("Image built with tag: {}", tag);
@@ -686,21 +390,24 @@ pub async fn build_docker_image_from_relevance(
             ));
         }
 
-        // Create a ranking config from the relevance config for using with update_dockerfile_from_error
-        let ranking_config = RankingConfig {
-            llm: config.llm.clone(),
-            num_rankings: 3,
-            max_workers: config.max_workers,
-            max_tokens: config.max_tokens,
-            temperature: 0.0,
-            trajectory_store_dir: config.trajectory_store_dir.clone(),
-        };
-
         // Update the Dockerfile using LLM suggestions
         println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
+        
+        // Create a config for the update_dockerfile_from_error function
+        let dockerfile_config = DockerfileConfig {
+            model: crate::config::ModelConfig {
+                model: "claude-3-opus-20240229".to_string(),
+                timeout: 60,
+                max_retries: 3,
+            },
+            max_tokens: 4096,
+            temperature: 0.0,
+            max_retries: 3,
+        };
+        
         let updated_dockerfile =
-            update_dockerfile_from_error(&ranking_config, problem, &dockerfile_path, &error_output)
+            update_dockerfile_from_error(&dockerfile_config, problem, &dockerfile_path, &error_output)
                 .await?;
 
         // Save the updated Dockerfile
@@ -716,204 +423,118 @@ pub async fn build_docker_image_from_relevance(
             "Failed to write updated Dockerfile to {:?}",
             dockerfile_path
         ))?;
-        println!("Updated Dockerfile with LLM suggestions");
-        info!("Updated Dockerfile with LLM suggestions");
+        println!("Updated Dockerfile written to {:?}", dockerfile_path);
+        info!("Updated Dockerfile written to {:?}", dockerfile_path);
 
-        // Increment retry counter
         retry_count += 1;
     }
+
+    Err(anyhow!(
+        "Docker build failed after {} attempts",
+        max_retries + 1
+    ))
 }
 
-pub async fn build_docker_image(
-    config: &RankingConfig,
-    problem: &SWEBenchProblem,
-    tag: &str,
-    max_retries: usize,
-) -> Result<()> {
-    info!("Building Docker image with tag: {}", tag);
-
-    // Create a trajectory store for this problem
-    let trajectory_store =
-        TrajectoryStore::new(&config.trajectory_store_dir, problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
-
-    // Check if Dockerfile exists
-    let dockerfile_path = trajectory_store.problem_dir().join("Dockerfile");
-    if !dockerfile_path.exists() {
-        return Err(anyhow!(
-            "Dockerfile not found at {:?}. Generate it first with the 'dockerfile' command.",
-            dockerfile_path
-        ));
+/// Extract Dockerfile content from LLM response, looking for a markdown code block
+pub fn extract_dockerfile_from_response(response: &str) -> Option<String> {
+    // Try to match ```dockerfile ... ``` blocks (case insensitive)
+    let dockerfile_re = Regex::new(r"(?i)```\s*dockerfile\s*\n([\s\S]*?)\n\s*```").unwrap();
+    if let Some(captures) = dockerfile_re.captures(response) {
+        return captures.get(1).map(|m| m.as_str().to_string());
     }
 
-    info!("Using Dockerfile at {:?}", dockerfile_path);
+    // Try to match plain ``` ... ``` blocks that might contain a Dockerfile
+    let plain_code_re = Regex::new(r"```\s*\n([\s\S]*?)\n\s*```").unwrap();
+    if let Some(captures) = plain_code_re.captures(response) {
+        let content = captures.get(1).map(|m| m.as_str().to_string());
+        if let Some(content) = content {
+            // Check if it looks like a Dockerfile (has FROM instruction)
+            if content.contains("FROM ") {
+                return Some(content);
+            }
+        }
+    }
 
-    // Use the repository directory as the Docker context
-    // This makes files from the repository available during the build
-    let docker_context_dir = problem
-        .get_codebase_path()
-        .ok_or_else(|| anyhow!("Codebase path not set for problem"))?;
-    info!(
-        "Using repository as Docker context: {:?}",
-        docker_context_dir
+    None
+}
+
+/// Update a Dockerfile based on error output from a failed build
+async fn update_dockerfile_from_error(
+    config: &DockerfileConfig,
+    problem: &SWEBenchProblem,
+    dockerfile_path: &Path,
+    error_output: &str,
+) -> Result<String> {
+    // Read the current Dockerfile
+    let dockerfile_content = fs::read_to_string(dockerfile_path).context(format!(
+        "Failed to read Dockerfile at {:?}",
+        dockerfile_path
+    ))?;
+
+    // Create LLM config for Anthropic
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.model.model.clone(),
+        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        base_url: None,
+        timeout: config.model.timeout,
+        max_retries: config.model.max_retries,
+    };
+
+    // Create LLM client
+    let client = create_client(&llm_config)
+        .await
+        .context("Failed to create LLM client")?;
+
+    // Generate the prompt for the LLM
+    let prompt = get_dockerfile_error_user_prompt(
+        problem.get_problem_statement(),
+        &dockerfile_content,
+        error_output,
     );
 
-    // Copy scripts to the Docker context if they exist
-    let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
-    let lint_script_path = trajectory_store.problem_dir().join("lint-script.sh");
-    let test_script_path = trajectory_store.problem_dir().join("test-script.sh");
-    let single_test_script_path = trajectory_store.problem_dir().join("single-test-script.sh");
+    // Send the request to the LLM
+    let llm_response = client
+        .completion_with_tracing(
+            &prompt,
+            config.max_tokens,
+            config.temperature,
+            None,
+            Some(&format!("dockerfile_error_{}", problem.id)),
+            None,
+        )
+        .await
+        .context("Failed to get Dockerfile fix from LLM")?;
 
-    if setup_script_path.exists() {
-        let dest_path = docker_context_dir.join("setup-script.sh");
-        fs::copy(&setup_script_path, &dest_path).context(format!(
-            "Failed to copy setup script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!("Copied setup script to Docker context: {:?}", dest_path);
-    }
+    // Extract the updated Dockerfile content
+    let updated_dockerfile = llm_response.content.clone();
 
-    if lint_script_path.exists() {
-        let dest_path = docker_context_dir.join("lint-script.sh");
-        fs::copy(&lint_script_path, &dest_path).context(format!(
-            "Failed to copy lint script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!("Copied lint script to Docker context: {:?}", dest_path);
-    }
+    // Try to extract the Dockerfile content from markdown code blocks
+    match extract_dockerfile_from_response(&updated_dockerfile) {
+        Some(content) => Ok(content),
+        None => {
+            // If we can't extract a code block, try to look for lines that might be Dockerfile instructions
+            // This is a fallback in case the LLM responds in a different format
+            let lines = updated_dockerfile.lines();
+            let dockerfile_lines: Vec<_> = lines
+                .filter(|line| {
+                    line.contains("FROM ")
+                        || line.contains("RUN ")
+                        || line.contains("COPY ")
+                        || line.contains("WORKDIR ")
+                        || line.contains("ENV ")
+                        || line.contains("EXPOSE ")
+                        || line.contains("CMD ")
+                        || line.contains("ENTRYPOINT ")
+                })
+                .collect();
 
-    if test_script_path.exists() {
-        let dest_path = docker_context_dir.join("test-script.sh");
-        fs::copy(&test_script_path, &dest_path).context(format!(
-            "Failed to copy test script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!("Copied test script to Docker context: {:?}", dest_path);
-    }
-
-    if single_test_script_path.exists() {
-        let dest_path = docker_context_dir.join("single-test-script.sh");
-        fs::copy(&single_test_script_path, &dest_path).context(format!(
-            "Failed to copy single test script to Docker context: {:?}",
-            dest_path
-        ))?;
-        info!(
-            "Copied single test script to Docker context: {:?}",
-            dest_path
-        );
-    }
-
-    // Try building the Docker image, with retries if it fails
-    let mut retry_count = 0;
-
-    loop {
-        // Run docker build command with streaming output
-        println!(
-            "\n=== Docker Build (Attempt {}/{}) ===",
-            retry_count + 1,
-            max_retries + 1
-        );
-        info!(
-            "Running docker build (attempt {}/{})...",
-            retry_count + 1,
-            max_retries + 1
-        );
-
-        let mut child = Command::new("docker")
-            .arg("build")
-            .arg("-t")
-            .arg(tag)
-            .arg("-f")
-            .arg(&dockerfile_path)
-            .arg(docker_context_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to execute docker build command")?;
-
-        // Stream stdout in real-time
-        let stdout = child.stdout.take().expect("Failed to capture stdout");
-        let stdout_reader = BufReader::new(stdout);
-        let stderr = child.stderr.take().expect("Failed to capture stderr");
-        let stderr_reader = BufReader::new(stderr);
-
-        // Collect stderr for potential error analysis
-        let mut error_output = String::new();
-
-        // Create a thread to read and display stdout
-        let stdout_handle = std::thread::spawn(move || {
-            for line in stdout_reader.lines() {
-                if let Ok(line) = line {
-                    println!("[stdout] {}", line);
-                }
-            }
-        });
-
-        // Read and display stderr, also collecting it for error analysis if needed
-        for line in stderr_reader.lines() {
-            if let Ok(line) = line {
-                println!("[stderr] {}", line);
-                error_output.push_str(&line);
-                error_output.push('\n');
+            if !dockerfile_lines.is_empty() {
+                Ok(dockerfile_lines.join("\n"))
+            } else {
+                warn!("Could not extract updated Dockerfile from LLM response, using original");
+                Ok(dockerfile_content)
             }
         }
-
-        // Wait for stdout thread to complete
-        stdout_handle.join().expect("Failed to join stdout thread");
-
-        // Wait for the command to complete and get the exit status
-        let status = child
-            .wait()
-            .context("Failed to wait for docker build command")?;
-
-        if status.success() {
-            println!("\nDocker build completed successfully!");
-            info!("Docker build completed successfully");
-            info!("Image built with tag: {}", tag);
-            return Ok(());
-        }
-
-        println!("\nDocker build failed!");
-        info!("Docker build failed with error");
-
-        // Check if we've reached the maximum number of retries
-        if retry_count >= max_retries {
-            println!(
-                "Maximum retry attempts ({}) reached. Giving up.",
-                max_retries
-            );
-            info!("Maximum retry attempts reached. Giving up.");
-            return Err(anyhow!(
-                "Docker build failed after {} attempts",
-                max_retries + 1
-            ));
-        }
-
-        // Update the Dockerfile using LLM suggestions
-        println!("\nAnalyzing build error and updating Dockerfile...");
-        info!("Attempting to fix Dockerfile using LLM...");
-        let updated_dockerfile =
-            update_dockerfile_from_error(config, problem, &dockerfile_path, &error_output).await?;
-
-        // Save the updated Dockerfile
-        let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
-        fs::copy(&dockerfile_path, &backup_path).context(format!(
-            "Failed to create backup of Dockerfile at {:?}",
-            backup_path
-        ))?;
-        println!("Created backup of original Dockerfile at {:?}", backup_path);
-        info!("Created backup of original Dockerfile at {:?}", backup_path);
-
-        fs::write(&dockerfile_path, &updated_dockerfile).context(format!(
-            "Failed to write updated Dockerfile to {:?}",
-            dockerfile_path
-        ))?;
-        println!("Updated Dockerfile with LLM suggestions");
-        info!("Updated Dockerfile with LLM suggestions");
-
-        // Increment retry counter
-        retry_count += 1;
     }
 }

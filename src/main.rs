@@ -158,6 +158,17 @@ async fn main() -> Result<()> {
     // Use the already parsed CLI args
     let mut config = Config::from_file(cli.config_path.as_deref())?;
 
+    // Check for API key in environment variables if not in config
+    if config.anthropic_api_key.is_empty() {
+        config.anthropic_api_key = env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+        if config.anthropic_api_key.is_empty() {
+            warn!("No Anthropic API key found in config or environment variables");
+            warn!("Please set ANTHROPIC_API_KEY environment variable or provide it in config.json");
+        } else {
+            info!("Using Anthropic API key from environment variable");
+        }
+    }
+
     // Initialize Langfuse for observability (from config or environment variables)
     let langfuse_enabled = config.observability.langfuse.enabled;
     let langfuse_secret_key = if !config.observability.langfuse.secret_key.is_empty() {
@@ -335,15 +346,58 @@ async fn main() -> Result<()> {
         Command::Chat { config_type, temperature } => {
             info!("Starting chat session with LLM");
             
-            // Determine which LLM configuration to use
+            // Create LLM config from the selected model and the global API key
             let llm_config = match config_type.to_lowercase().as_str() {
-                "relevance" => config.relevance.llm.clone(),
-                "ranking" => config.ranking.llm.clone(),
-                "dockerfile" => config.dockerfile.llm.clone(),
-                "scripts" => config.scripts.llm.clone(),
+                "relevance" => {
+                    crate::config::LLMConfig {
+                        model_type: "anthropic".to_string(),
+                        model: config.relevance.model.model.clone(),
+                        api_key: config.anthropic_api_key.clone(),
+                        base_url: None,
+                        timeout: config.relevance.model.timeout,
+                        max_retries: config.relevance.model.max_retries,
+                    }
+                },
+                "ranking" => {
+                    crate::config::LLMConfig {
+                        model_type: "anthropic".to_string(),
+                        model: config.ranking.model.model.clone(),
+                        api_key: config.anthropic_api_key.clone(),
+                        base_url: None,
+                        timeout: config.ranking.model.timeout,
+                        max_retries: config.ranking.model.max_retries,
+                    }
+                },
+                "dockerfile" => {
+                    crate::config::LLMConfig {
+                        model_type: "anthropic".to_string(),
+                        model: config.dockerfile.model.model.clone(),
+                        api_key: config.anthropic_api_key.clone(),
+                        base_url: None,
+                        timeout: config.dockerfile.model.timeout,
+                        max_retries: config.dockerfile.model.max_retries,
+                    }
+                },
+                "scripts" => {
+                    crate::config::LLMConfig {
+                        model_type: "anthropic".to_string(),
+                        model: config.scripts.model.model.clone(),
+                        api_key: config.anthropic_api_key.clone(),
+                        base_url: None,
+                        timeout: config.scripts.model.timeout,
+                        max_retries: config.scripts.model.max_retries,
+                    }
+                },
                 _ => {
                     eprintln!("Invalid config type: {}. Using relevance config.", config_type);
-                    config.relevance.llm.clone()
+                    crate::config::LLMConfig {
+                        model_type: "anthropic".to_string(),
+                        model: config.relevance.model.model.clone(),
+                        api_key: config.anthropic_api_key.clone(),
+                        base_url: None,
+                        timeout: config.relevance.model.timeout,
+                        max_retries: config.relevance.model.max_retries,
+                    }
                 }
             };
             

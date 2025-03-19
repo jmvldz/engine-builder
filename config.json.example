@@ -1,54 +1,47 @@
 {
+  "anthropic_api_key": "your_anthropic_api_key_here",
+  "output_path": ".engines",
+  "codebase": {
+    "path": "./path/to/your/codebase",
+    "problem_id": "custom_problem",
+    "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
+    "exclusions_path": "exclusions.json"
+  },
   "relevance": {
-    "llm": {
-      "model_type": "anthropic",
+    "model": {
       "model": "claude-3-sonnet-20240229",
-      "api_key": "your_anthropic_api_key_here",
-      "base_url": null,
       "timeout": 30,
       "max_retries": 3
     },
     "max_workers": 8,
     "max_tokens": 4096,
     "timeout": 300.0,
-    "max_file_tokens": 100000,
-    "trajectory_store_dir": "./data/trajectories"
+    "max_file_tokens": 100000
   },
   "ranking": {
-    "llm": {
-      "model_type": "anthropic",
+    "model": {
       "model": "claude-3-sonnet-20240229",
-      "api_key": "your_anthropic_api_key_here",
-      "base_url": null,
       "timeout": 30,
       "max_retries": 3
     },
     "num_rankings": 3,
     "max_workers": 4,
     "max_tokens": 4096,
-    "temperature": 0.0,
-    "trajectory_store_dir": "./data/trajectories"
+    "temperature": 0.0
   },
   "dockerfile": {
-    "llm": {
-      "model_type": "anthropic",
+    "model": {
       "model": "claude-3-opus-20240229",
-      "api_key": "your_anthropic_api_key_here",
-      "base_url": null,
       "timeout": 60,
       "max_retries": 3
     },
     "max_tokens": 4096,
     "temperature": 0.0,
-    "output_path": "Dockerfile",
     "max_retries": 3
   },
   "scripts": {
-    "llm": {
-      "model_type": "anthropic",
+    "model": {
       "model": "claude-3-opus-20240229",
-      "api_key": "your_anthropic_api_key_here",
-      "base_url": null,
       "timeout": 60,
       "max_retries": 3
     },
@@ -60,12 +53,6 @@
     "timeout": 300,
     "parallel": false,
     "remove": true
-  },
-  "codebase": {
-    "path": "./path/to/your/codebase",
-    "problem_id": "custom_problem",
-    "problem_statement": "Fix the bug that causes X to happen when Y is triggered. The issue occurs in the Z module.",
-    "exclusions_path": "exclusions.json"
   },
   "observability": {
     "langfuse": {
