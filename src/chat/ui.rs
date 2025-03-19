@@ -293,14 +293,22 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Create a paragraph for each line with proper text formatting
-        let text_content = self.output_lines.iter()
-            .map(|line| line.clone())
-            .collect::<Vec<String>>()
-            .join("\n");
+        // Create a paragraph with each character separated by a space
+        let mut formatted_content = String::new();
+        
+        for line in &self.output_lines {
+            for c in line.chars() {
+                formatted_content.push(c);
+                // Add a space after each character except spaces
+                if c != ' ' {
+                    formatted_content.push(' ');
+                }
+            }
+            formatted_content.push('\n');
+        }
         
         // Create a paragraph widget for output
-        let output_paragraph = Paragraph::new(text_content)
+        let output_paragraph = Paragraph::new(formatted_content)
             .style(Style::default())
             .wrap(Wrap { trim: false });
         
