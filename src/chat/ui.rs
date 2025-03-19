@@ -410,7 +410,9 @@ pub async fn run_chat_ui(
             };
             
             // Add the message with prefix to output lines
-            app.output_lines.push_back(format!("{}{}", prefix, message.content));
+            // Format the message content with spaces between words
+            let formatted_content = message.content.split_whitespace().collect::<Vec<&str>>().join(" ");
+            app.output_lines.push_back(format!("{}{}", prefix, formatted_content));
             
             // Force terminal to redraw
             terminal.autoresize()?;
