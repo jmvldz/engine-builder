@@ -297,9 +297,16 @@ impl ChatApp {
         // Convert output lines to ListItems with proper text formatting
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                // Create a ListItem with Line and Span for proper text formatting
-                let spans = vec![Span::raw(line.clone())];
-                ListItem::new(Line::from(spans))
+                // Create a ListItem with proper text formatting
+                let line_with_spaces = line.chars().fold(String::new(), |mut acc, c| {
+                    acc.push(c);
+                    if c != ' ' && c != '\n' {
+                        acc.push(' ');
+                    }
+                    acc
+                });
+                
+                ListItem::new(line_with_spaces)
             })
             .collect();
         
