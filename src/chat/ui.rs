@@ -294,10 +294,19 @@ impl ChatApp {
         let inner_area = output_block.inner(area);
         frame.render_widget(output_block, area);
         
-        // Convert output lines to ListItems
+        // Convert output lines to ListItems with proper spacing
         let items: Vec<ListItem> = self.output_lines.iter()
             .map(|line| {
-                ListItem::new(Line::from(vec![Span::raw(line.clone())]))
+                // Add spaces between characters for better rendering
+                let mut spaced_text = String::new();
+                for c in line.chars() {
+                    spaced_text.push(c);
+                    if c != ' ' {
+                        spaced_text.push(' ');
+                    }
+                }
+                
+                ListItem::new(Line::from(vec![Span::raw(spaced_text)]))
             })
             .collect();
         
