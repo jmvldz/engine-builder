@@ -2,22 +2,26 @@ use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{self},
+    execute,
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap, Clear},
+    widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     layout::{Layout, Constraint, Direction, Rect},
     style::{Style, Color},
-    Terminal, TerminalOptions, Viewport,
+    text::{Line},
+    Terminal,
 };
-use std::{io, time::Duration};
+use std::{io, time::Duration, collections::VecDeque};
 use tokio::sync::mpsc;
 
 use crate::chat::ChatMessage;
 
 /// App structure to hold UI state
 pub struct ChatApp {
-    /// Chat message history
+    /// Chat message history as formatted strings
+    pub output_lines: VecDeque<String>,
+    /// Original chat messages
     pub messages: Vec<ChatMessage>,
     /// Input text
     pub input: String,
@@ -42,6 +46,7 @@ impl ChatApp {
             .unwrap_or_else(|_| "/unknown".to_string());
             
         Self {
+            output_lines: VecDeque::new(),
             messages: Vec::new(),
             input: String::new(),
             cursor_position: 0,
@@ -281,38 +286,29 @@ impl ChatApp {
     
     /// Render chat message history
     fn render_messages(&self, frame: &mut Frame, area: Rect) {
-        // No border for output area
-        let inner_area = area;
+        // Create a block for output with border
+        let output_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded);
         
-        // Format all messages as a single text
-        let mut formatted_text = String::new();
+        let inner_area = output_block.inner(area);
+        frame.render_widget(output_block, area);
         
-        for message in &self.messages {
-            let prefix = match message.role.as_str() {
-                "user" => "> ",
-                "assistant" => "⏺ ",
-                "system" => "! ",
-                _ => "? ",
-            };
-            
-            // Add the message with prefix and ensure proper spacing
-            formatted_text.push_str(&format!("{}{}\n\n", prefix, message.content));
-        }
+        // Convert output lines to ListItems
+        let items: Vec<ListItem> = self.output_lines.iter()
+            .map(|line| {
+                // Ensure proper text formatting
+                let content = line.replace("\n", " \n"); // Ensure newlines have spaces
+                ListItem::new(Line::from(content))
+            })
+            .collect();
         
-        // Create a paragraph from the formatted text with auto-scrolling
-        // Calculate how many lines we need to scroll to show the most recent messages
-        let line_count = formatted_text.matches('\n').count();
-        // Add extra lines to account for wrapped text
-        let wrapped_lines = formatted_text.len() / inner_area.width.max(1) as usize;
-        let total_lines = line_count + wrapped_lines;
-        let scroll_offset = total_lines.saturating_sub(inner_area.height as usize);
+        // Create a list widget for output
+        let output_list = List::new(items)
+            .style(Style::default());
         
-        let paragraph = Paragraph::new(formatted_text)
-            .style(Style::default())
-            .wrap(Wrap { trim: true })
-            .scroll((scroll_offset as u16, 0));
-        
-        frame.render_widget(paragraph, inner_area);
+        // Render the list widget
+        frame.render_widget(output_list, inner_area);
     }
     
     /// Render help popup
@@ -384,15 +380,12 @@ pub async fn run_chat_ui(
     rx: mpsc::Receiver<ChatMessage>,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up terminal with inline viewport
+    // Set up terminal
     terminal::enable_raw_mode()?;
-    let backend = CrosstermBackend::new(io::stdout());
-    let mut terminal = Terminal::with_options(
-        backend,
-        TerminalOptions {
-            viewport: Viewport::Inline(20), // Use 20 lines for the inline viewport
-        },
-    )?;
+    let mut stdout = io::stdout();
+    execute!(stdout, terminal::EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
     
     // Create app state
     let mut app = ChatApp::new(tx);
@@ -406,8 +399,21 @@ pub async fn run_chat_ui(
     while app.running {
         // Non-blocking check for new messages
         if let Ok(message) = user_input_rx.try_recv() {
-            app.messages.push(message);
-            // Force terminal to scroll to bottom when new messages are received
+            // Add message to history
+            app.messages.push(message.clone());
+            
+            // Format and add to output lines
+            let prefix = match message.role.as_str() {
+                "user" => "> ",
+                "assistant" => "⏺ ",
+                "system" => "! ",
+                _ => "? ",
+            };
+            
+            // Add the message with prefix to output lines
+            app.output_lines.push_back(format!("{}{}", prefix, message.content));
+            
+            // Force terminal to redraw
             terminal.autoresize()?;
         }
         
@@ -423,6 +429,7 @@ pub async fn run_chat_ui(
     
     // Restore terminal
     terminal::disable_raw_mode()?;
+    execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     
     Ok(())
