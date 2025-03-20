@@ -18,12 +18,15 @@ fn test_trajectory_store_new() {
     let temp_dir = tempdir().unwrap();
     let problem = create_test_problem();
     
-    let _store = TrajectoryStore::new(&temp_dir, &problem).unwrap();
+    let store = TrajectoryStore::new(&temp_dir, &problem).unwrap();
     
-    // Verify problem directory was created
-    let problem_dir = temp_dir.path().join("test_problem");
-    assert!(problem_dir.exists());
-    assert!(problem_dir.is_dir());
+    // In the new implementation, we should check that the base directory exists
+    assert!(temp_dir.path().exists());
+    assert!(temp_dir.path().is_dir());
+    
+    // Save something to test functionality
+    let decision = RelevanceDecision::relevant("Message".to_string(), "Summary".to_string());
+    store.save_per_file_relevance_decision("test.rs", decision).unwrap();
     
     // Cleanup
     temp_dir.close().unwrap();
@@ -37,7 +40,7 @@ fn test_trajectory_store_paths() {
     let store = TrajectoryStore::new(&temp_dir, &problem).unwrap();
     
     // Check path methods
-    let expected_problem_dir = temp_dir.path().join("test_problem");
+    let expected_problem_dir = temp_dir.path();
     assert_eq!(store.problem_dir(), expected_problem_dir);
     
     let expected_relevance_path = expected_problem_dir.join("relevance_decisions.json");

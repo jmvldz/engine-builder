@@ -21,12 +21,11 @@ impl TrajectoryStore {
     /// Create a new trajectory store
     pub fn new<P: AsRef<Path>>(base_dir: P, problem: &SWEBenchProblem) -> Result<Self> {
         let base_dir = base_dir.as_ref().to_path_buf();
-        let problem_dir = base_dir.join(&problem.id);
 
-        // Create the problem directory if it doesn't exist
-        fs::create_dir_all(&problem_dir).context(format!(
-            "Failed to create problem directory: {:?}",
-            problem_dir
+        // Create the base directory if it doesn't exist
+        fs::create_dir_all(&base_dir).context(format!(
+            "Failed to create trajectory directory: {:?}",
+            base_dir
         ))?;
 
         Ok(Self {
@@ -37,12 +36,22 @@ impl TrajectoryStore {
 
     /// Get the path to the problem directory
     pub fn problem_dir(&self) -> PathBuf {
-        self.base_dir.join(&self.problem_id)
+        self.base_dir.clone()
     }
 
     /// Get the path to the relevance decisions file
     pub fn relevance_decisions_path(&self) -> PathBuf {
         self.problem_dir().join("relevance_decisions.json")
+    }
+    
+    /// Ensure the base directory exists
+    fn ensure_base_dir_exists(&self) -> Result<()> {
+        let dir = self.base_dir.clone();
+        fs::create_dir_all(&dir).context(format!(
+            "Failed to create base directory: {:?}",
+            dir
+        ))?;
+        Ok(())
     }
 
     /// Get the path to the file ranking
@@ -89,6 +98,9 @@ impl TrajectoryStore {
         file_path: &str,
         decision: RelevanceDecision,
     ) -> Result<()> {
+        // Ensure the base directory exists
+        self.ensure_base_dir_exists()?;
+        
         // Save to the consolidated relevance_decisions.json file
         let path = self.relevance_decisions_path();
 
@@ -118,6 +130,9 @@ impl TrajectoryStore {
 
     /// Save the file ranking
     pub fn save_ranking(&self, context: ProblemContext) -> Result<()> {
+        // Ensure the base directory exists
+        self.ensure_base_dir_exists()?;
+        
         let path = self.ranking_path();
 
         let file =

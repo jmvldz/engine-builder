@@ -332,14 +332,14 @@ impl Config {
         self.output_path.clone().unwrap_or_else(|| ".engines".to_string())
     }
     
-    /// Get the trajectory store directory for a given problem ID
-    pub fn get_trajectory_dir(&self, problem_id: &str) -> String {
-        format!("{}/trajectories/{}", self.get_output_dir(), problem_id)
+    /// Get the trajectory store directory (shared across all problems)
+    pub fn get_trajectory_dir(&self, _problem_id: &str) -> String {
+        self.get_output_dir()
     }
     
     /// Get the Dockerfile path for a given problem
     pub fn get_dockerfile_path(&self, problem_id: &str) -> String {
-        format!("{}/dockerfiles/{}/Dockerfile", self.get_output_dir(), problem_id)
+        format!("{}/Dockerfile", self.get_output_dir())
     }
     
     /// Get the scripts directory for a given problem

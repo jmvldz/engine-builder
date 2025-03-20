@@ -35,15 +35,17 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Command {
-    /// Run file relevance assessment
-    Relevance,
-    /// Run file ranking
-    Ranking,
-    /// Run full pipeline (relevance and dockerfile generation)
+    /// Run full pipeline (file selection, relevance, ranking, scripts, and dockerfile generation)
     Pipeline,
-    /// Run only the file selection step
+    /// Run only the file selection step (first stage of pipeline)
     FileSelection,
-    /// Generate a test-focused Dockerfile for running tests based on relevant files
+    /// Run file relevance assessment (second stage of pipeline)
+    Relevance,
+    /// Run file ranking (third stage of pipeline)
+    Ranking,
+    /// Generate lint and test scripts based on ranked files (fourth stage of pipeline)
+    GenerateScripts,
+    /// Generate a test-focused Dockerfile based on ranked files (fifth stage of pipeline)
     Dockerfile,
     /// Build a Docker image from the generated Dockerfile
     BuildImage {
@@ -51,8 +53,6 @@ enum Command {
         #[arg(short, long, default_value = "engine-builder-test")]
         tag: String,
     },
-    /// Generate lint and test scripts based on relevant files
-    GenerateScripts,
     /// Run lint script in a Docker container
     RunLint {
         /// Tag name for the Docker image

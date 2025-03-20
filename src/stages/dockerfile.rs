@@ -320,13 +320,21 @@ pub async fn build_docker_image(
             );
         }
 
+        // Look for the Dockerfile in the .engines folder
+        let engines_dockerfile = Path::new(".engines").join("Dockerfile");
+        let source_path = if engines_dockerfile.exists() {
+            engines_dockerfile
+        } else {
+            dockerfile_path.clone()
+        };
+        
         // Copy the Dockerfile to the Docker context
         let dest_path = docker_context_dir.join("Dockerfile");
-        fs::copy(&dockerfile_path, &dest_path).context(format!(
+        fs::copy(&source_path, &dest_path).context(format!(
             "Failed to copy Dockerfile to Docker context: {:?}",
             dest_path
         ))?;
-        info!("Copied Dockerfile to Docker context: {:?}", dest_path);
+        info!("Copied Dockerfile from {:?} to Docker context: {:?}", source_path, dest_path);
 
         // Build the Docker image
         info!("Building Docker image with tag: {}", tag);

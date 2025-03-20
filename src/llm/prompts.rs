@@ -296,6 +296,12 @@ CRITICAL: Do NOT include any language-specific package installation commands in 
 
 All language-specific package installation should happen in the setup-script.sh instead.
 
+CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
+or a distroless image, you MUST include a step to install bash. For example:
+- For Alpine: RUN apk add --no-cache bash
+- For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
+This is required because scripts will be executed using bash.
+
 Analyze the code files to understand:
 - The programming language and runtime requirements
 - Package managers used
@@ -346,6 +352,12 @@ CRITICAL: Do NOT include any language-specific package installation commands in 
 - Do NOT include apt-get, apk, yum commands for language packages
 
 All language-specific package installation should happen in the setup-script.sh instead.
+
+CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
+or a distroless image, you MUST include a step to install bash. For example:
+- For Alpine: RUN apk add --no-cache bash
+- For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
+This is required because scripts will be executed using bash.
 
 Analyze the code files to understand:
 - The programming language and runtime requirements
@@ -476,6 +488,13 @@ Common Docker build errors include:
 - Permission issues
 - Network-related problems during package installation
 - Syntax errors in the Dockerfile
+- Missing bash executable
+
+CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
+or a distroless image, you MUST include a step to install bash. For example:
+- For Alpine: RUN apk add --no-cache bash
+- For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
+This is required because scripts will be executed using bash.
 
 Your response should include:
 1. A brief analysis of the error
@@ -706,6 +725,21 @@ IMPORTANT: ALWAYS assume the script will be running in a CI environment. This me
 - Environment might be minimal, so install all required dependencies
 - No assumptions about pre-installed tools (except basic ones like bash)
 - Use environment variables with defaults for configuration
+
+CRITICAL: For specific languages, ALWAYS set the appropriate environment variables:
+- For Go projects:
+  * ALWAYS set "export CGO_ENABLED=1" to ensure race detection works
+  * Set GOPATH and GOROOT if needed
+  * Consider setting GOOS and GOARCH as needed
+- For Rust projects:
+  * Set RUSTFLAGS if needed
+  * Set CARGO_TARGET_DIR if needed
+- For Node.js projects:
+  * Set NODE_ENV to "test" or "development"
+- For Python projects:
+  * Set PYTHONPATH as needed
+  * Set PYTHONDONTWRITEBYTECODE=1 to avoid .pyc files
+  * Set PYTHONUNBUFFERED=1 for better logging
 
 The test and lint scripts will contain ONLY the commands to run tests and linters,
 so your setup script must ensure the environment is completely ready for them.

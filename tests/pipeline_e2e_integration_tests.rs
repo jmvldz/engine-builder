@@ -159,7 +159,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     let _codebase_config = global_config.codebase.clone();
     
     // Create a trajectory store using the trajectory directory from global config
-    let trajectory_dir = ".engines/trajectories/e2e_test";
+    let trajectory_dir = ".engines";
     let store = TrajectoryStore::new(&trajectory_dir, &problem)?;
     
     // Ensure the problem directory exists
@@ -182,7 +182,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
 
 These files are most likely to be relevant to the issue described."#;
     
-    let prob_dir = Path::new(&trajectory_dir).join("e2e_test");
+    // Use the problem directory from the store
     std::fs::create_dir_all(&prob_dir)?;
     
     std::fs::write(
