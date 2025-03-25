@@ -141,7 +141,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
             max_workers: 4,
             temperature: 0.0,
         },
-        output_path: Some(".engines".to_string()),
+        output_path: Some(temp_path.clone()),
         codebase: CodebaseConfig {
             path: codebase_dir.path().to_path_buf(),
             exclusions_path: "exclusions.json".to_string(),
@@ -159,7 +159,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     let _codebase_config = global_config.codebase.clone();
     
     // Create a trajectory store using the trajectory directory from global config
-    let trajectory_dir = ".engines";
+    let trajectory_dir = temp_path.clone();
     let store = TrajectoryStore::new(&trajectory_dir, &problem)?;
     
     // Ensure the problem directory exists
@@ -237,7 +237,7 @@ These files are most likely to be relevant to the issue described."#;
     );
     
     // Write the relevance decisions to the expected path
-    let relevance_decisions_path = prob_dir.join("relevance_decisions.json");
+    let relevance_decisions_path = store.relevance_decisions_path();
     std::fs::write(
         &relevance_decisions_path,
         serde_json::to_string_pretty(&relevance_decisions)?,

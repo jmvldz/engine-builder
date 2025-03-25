@@ -145,14 +145,13 @@ async fn rank_problem_files(
     problem: &mut SWEBenchProblem,
     config: &RankingConfig,
     client: &dyn LLMClient,
+    output_dir: &str,
 ) -> Result<crate::llm::client::TokenUsage> {
     info!("Ranking files for problem: {}", problem.id);
 
     // Create a trajectory store for this problem
-    let config_ref = std::env::var("CONFIG").unwrap_or_default();
-    let global_config = Config::from_file(Some(&config_ref)).unwrap_or_else(|_| Config::default());
     let trajectory_store =
-        TrajectoryStore::new(&global_config.get_trajectory_dir(&problem.id), problem).context(format!(
+        TrajectoryStore::new(output_dir, problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
@@ -401,7 +400,8 @@ pub async fn process_rankings(config: &Config, mut problem: SWEBenchProblem) -> 
 
     info!("Processing problem: {}", problem.id);
 
-    match rank_problem_files(&mut problem, &config.ranking, &*client).await {
+    let output_dir = config.get_trajectory_dir(&problem.id);
+    match rank_problem_files(&mut problem, &config.ranking, &*client, &output_dir).await {
         Ok(token_usage) => {
             // Calculate and display cost
             let cost = client.calculate_cost(&token_usage);
