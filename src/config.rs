@@ -338,7 +338,7 @@ impl Config {
     }
     
     /// Get the Dockerfile path for a given problem
-    pub fn get_dockerfile_path(&self, problem_id: &str) -> String {
+    pub fn get_dockerfile_path(&self, _problem_id: &str) -> String {
         format!("{}/Dockerfile", self.get_output_dir())
     }
     

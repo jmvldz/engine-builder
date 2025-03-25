@@ -128,8 +128,11 @@ async fn main() -> Result<()> {
     // Use a custom logger setup based on the command
     let cli = Cli::parse();
     
-    // Check for special tool execution environment variable
-    if let Ok(tool_log_path) = std::env::var("ENGINE_BUILDER_TOOL_LOG") {
+    // Skip file logging when running in test mode
+    if cfg!(test) {
+        // For tests, use standard logging without any file output
+        env_logger::init();
+    } else if let Ok(tool_log_path) = std::env::var("ENGINE_BUILDER_TOOL_LOG") {
         // Tool is being executed as part of the chat UI, redirect logs to the specified file
         let log_path = std::path::PathBuf::from(tool_log_path);
         let file = std::fs::File::create(log_path).unwrap();

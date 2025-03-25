@@ -6,11 +6,10 @@ use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::file::FilePatternSelection;
 use engine_builder::models::problem::SWEBenchProblem;
 use engine_builder::models::relevance::{RelevanceDecision, RelevanceStatus};
-use engine_builder::stages::{file_selection, ranking};
+use engine_builder::stages::ranking;
 use engine_builder::utils::trajectory_store::TrajectoryStore;
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -76,6 +75,7 @@ impl LLMClient for MockLLMClient {
 }
 
 // Factory function for creating mock LLM client
+#[allow(dead_code)]
 fn create_mock_client(_: &LLMConfig) -> Pin<Box<dyn Future<Output = Result<Arc<dyn LLMClient>>> + Send>> {
     Box::pin(async {
         let client: Arc<dyn LLMClient> = Arc::new(MockLLMClient::new());
@@ -89,7 +89,7 @@ fn create_mock_client(_: &LLMConfig) -> Pin<Box<dyn Future<Output = Result<Arc<d
 #[tokio::test]
 async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
     // Override the LLM client creation function with a wrapper that adapts to the expected signature
-    engine_builder::llm::client::set_client_factory(|llm_config: &LLMConfig| {
+    engine_builder::llm::client::set_client_factory(|_llm_config: &LLMConfig| {
         Box::pin(async {
             let client: Arc<dyn LLMClient> = Arc::new(MockLLMClient::new());
             Ok(client)

@@ -14,6 +14,7 @@ pub struct TrajectoryStore {
     base_dir: PathBuf,
 
     /// Problem ID
+    #[allow(dead_code)]
     problem_id: String,
 }
 

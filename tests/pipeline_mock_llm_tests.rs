@@ -4,7 +4,7 @@ use engine_builder::config::{CodebaseConfig, Config, LLMConfig, RelevanceConfig,
 use engine_builder::llm::client::{LLMClient, LLMResponse, TokenCost, TokenUsage};
 use engine_builder::models::problem::SWEBenchProblem;
 use engine_builder::models::exclusion::ExclusionConfig;
-use engine_builder::stages::{file_selection, relevance, ranking};
+use engine_builder::stages::file_selection;
 use engine_builder::utils::trajectory_store::TrajectoryStore;
 use tempfile::tempdir;
 use std::sync::Arc;
@@ -223,7 +223,7 @@ async fn test_mock_pipeline_flow() -> Result<()> {
     engine_builder::llm::client::set_client_factory(create_mock_client);
     
     // Create test configs
-    let (global_config, relevance_config, codebase_config, ranking_config) = create_test_configs();
+    let (global_config, _relevance_config, codebase_config, _ranking_config) = create_test_configs();
     
     // Create a test problem
     let mut problem = SWEBenchProblem::new(
