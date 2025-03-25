@@ -466,11 +466,7 @@ Create a script called 'single-test-script.sh' that runs just one specified test
 
     info!("Single test script saved to {:?}", single_test_script_path);
 
-    // Also save copies to the trajectory store for historical tracking
-    fs::copy(&setup_script_path, trajectory_store.problem_dir().join("setup-script.sh"))?;
-    fs::copy(&lint_script_path, trajectory_store.problem_dir().join("lint-script.sh"))?;
-    fs::copy(&test_script_path, trajectory_store.problem_dir().join("test-script.sh"))?;
-    fs::copy(&single_test_script_path, trajectory_store.problem_dir().join("single-test-script.sh"))?;
+    // No need to save copies since scripts are already in the trajectory store directory
 
     // Calculate total usage and cost
     let total_usage = crate::llm::client::TokenUsage {

@@ -343,7 +343,7 @@ impl Config {
     }
     
     /// Get the scripts directory for a given problem
-    pub fn get_scripts_dir(&self, problem_id: &str) -> String {
-        format!("{}/scripts/{}", self.get_output_dir(), problem_id)
+    pub fn get_scripts_dir(&self, _problem_id: &str) -> String {
+        self.get_output_dir()
     }
 }
