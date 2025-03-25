@@ -468,11 +468,24 @@ async fn update_dockerfile_from_error(
         dockerfile_path
     ))?;
 
-    // Create LLM config for this operation
+    // Get the parent config to access the API key
+    let parent_config = std::env::var("ENGINE_BUILDER_CONFIG")
+        .map(|path| crate::config::Config::from_file(Some(&path)))
+        .unwrap_or_else(|_| crate::config::Config::from_file(None));
+    
+    // Get API key, first from environment then from config
+    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| {
+        parent_config
+            .ok()
+            .map(|c| c.anthropic_api_key)
+            .unwrap_or_default()
+    });
+
+    // Create LLM config with the API key
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
         model: config.model.clone().unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
-        api_key: std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        api_key: api_key,
         base_url: None,
         timeout: 60,
         max_retries: 3,
