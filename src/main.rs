@@ -352,23 +352,34 @@ async fn main() -> Result<()> {
         Command::Chat { config_type, temperature } => {
             info!("Starting chat session with LLM");
             
-            // Create LLM config based on the selected config type
-            let llm_config = match config_type.to_lowercase().as_str() {
-                "relevance" => config.to_llm_config(&config.relevance.model),
-                "ranking" => config.to_llm_config(&config.ranking.model),
-                "dockerfile" => config.to_llm_config(&config.dockerfile.model),
-                "scripts" => config.to_llm_config(&config.scripts.model),
-                _ => {
-                    eprintln!("Invalid config type: {}. Using default model.", config_type);
-                    config.to_llm_config(&None)
+            // First check if we have a dedicated chat model config
+            let llm_config = if config.chat.model.is_some() {
+                info!("Using dedicated chat model configuration");
+                config.to_llm_config(&config.chat.model)
+            } else {
+                // Fall back to the selected config type
+                info!("Using {} model configuration for chat", config_type);
+                match config_type.to_lowercase().as_str() {
+                    "relevance" => config.to_llm_config(&config.relevance.model),
+                    "ranking" => config.to_llm_config(&config.ranking.model),
+                    "dockerfile" => config.to_llm_config(&config.dockerfile.model),
+                    "scripts" => config.to_llm_config(&config.scripts.model),
+                    _ => {
+                        eprintln!("Invalid config type: {}. Using default chat model: claude-3-7-sonnet-20250219", config_type);
+                        // Create a Some with the default model for chat
+                        config.to_llm_config(&Some("claude-3-7-sonnet-20250219".to_string()))
+                    }
                 }
             };
+            
+            // Use config temperature unless overridden by command line
+            let temp = temperature.unwrap_or(config.chat.temperature);
             
             // Create chat configuration
             let chat_config = engine_builder::chat::ChatConfig {
                 llm_config,
-                max_tokens: 4096,
-                temperature: temperature.unwrap_or(0.7),
+                max_tokens: config.chat.max_tokens,
+                temperature: temp,
             };
             
             // Start the chat session

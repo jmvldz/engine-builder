@@ -150,6 +150,7 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
         },
         dockerfile: Default::default(),
         scripts: Default::default(),
+        chat: Default::default(),
         container: Default::default(),
         observability: Default::default(),
     };

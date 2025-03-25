@@ -27,7 +27,7 @@ impl Default for ChatConfig {
         Self {
             llm_config: LLMConfig {
                 model_type: "anthropic".to_string(),
-                model: "claude-3-sonnet-20240229".to_string(),
+                model: "claude-3-7-sonnet-20250219".to_string(), // Default chat model
                 api_key: "".to_string(),
                 base_url: None,
                 timeout: 30,

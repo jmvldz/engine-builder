@@ -204,6 +204,7 @@ fn create_test_configs() -> (Config, RelevanceConfig, CodebaseConfig, RankingCon
         },
         dockerfile: Default::default(),
         scripts: Default::default(),
+        chat: Default::default(),
         container: Default::default(),
         observability: Default::default(),
         output_path: Some(temp_path),

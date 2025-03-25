@@ -19,6 +19,8 @@ pub struct Config {
     #[serde(default)]
     pub scripts: ScriptConfig,
     #[serde(default)]
+    pub chat: ChatConfig,
+    #[serde(default)]
     pub container: ContainerConfig,
     #[serde(default)]
     pub observability: ObservabilityConfig,
@@ -175,6 +177,34 @@ impl Default for ScriptConfig {
     }
 }
 
+// Chat interface configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatConfig {
+    #[serde(default = "default_chat_model")]
+    pub model: Option<String>,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
+    #[serde(default = "default_chat_temperature")]
+    pub temperature: f64,
+}
+
+fn default_chat_temperature() -> f64 { 0.7 }
+
+fn default_chat_model() -> Option<String> {
+    Some("claude-3-7-sonnet-20250219".to_string())
+}
+
+impl Default for ChatConfig {
+    fn default() -> Self {
+        Self {
+            model: default_chat_model(),
+            max_tokens: default_max_tokens(),
+            temperature: default_chat_temperature(),
+        }
+    }
+}
+
 // Container configuration for running lint and test containers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -299,6 +329,7 @@ impl Config {
             },
             dockerfile: DockerfileConfig::default(),
             scripts: ScriptConfig::default(),
+            chat: ChatConfig::default(),
             container: ContainerConfig::default(),
             observability: ObservabilityConfig::default(),
             output_path: Some(".engines".to_string()),
