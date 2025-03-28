@@ -69,7 +69,6 @@ fn test_config_from_file() {
         },
         "ranking": {
             "model": "test_model",
-            "num_rankings": 2,
             "max_workers": 2,
             "max_tokens": 1000,
             "temperature": 0.5

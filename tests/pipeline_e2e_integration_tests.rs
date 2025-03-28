@@ -137,7 +137,6 @@ async fn test_end_to_end_pipeline_compatibility() -> Result<()> {
         ranking: RankingConfig {
             model: Some("test-model".to_string()),
             max_tokens: 1000,
-            num_rankings: 1,
             max_workers: 4,
             temperature: 0.0,
         },

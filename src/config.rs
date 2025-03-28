@@ -103,8 +103,6 @@ impl Default for RelevanceConfig {
 #[serde(default)]
 pub struct RankingConfig {
     pub model: Option<String>,
-    #[serde(default = "default_num_rankings")]
-    pub num_rankings: usize,
     #[serde(default = "default_ranking_max_workers")]
     pub max_workers: usize,
     #[serde(default = "default_max_tokens")]
@@ -112,8 +110,6 @@ pub struct RankingConfig {
     #[serde(default = "default_temperature")]
     pub temperature: f64,
 }
-
-fn default_num_rankings() -> usize { 3 }
 fn default_ranking_max_workers() -> usize { 4 }
 fn default_temperature() -> f64 { 0.0 }
 
@@ -121,7 +117,6 @@ impl Default for RankingConfig {
     fn default() -> Self {
         Self {
             model: None,
-            num_rankings: default_num_rankings(),
             max_workers: default_ranking_max_workers(),
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
