@@ -94,19 +94,34 @@ pub async fn generate_dockerfile(
         .await
         .context("Failed to get Dockerfile generation from LLM")?;
 
-    // Extract the Dockerfile content
-    let dockerfile_content = llm_response.content.clone();
-
+    // Save full LLM response which contains reasoning
+    let full_llm_response = llm_response.content.clone();
+    
     // Try to extract the Dockerfile content from markdown code blocks
-    let dockerfile_content = match extract_dockerfile_from_response(&dockerfile_content) {
+    let dockerfile_content = match extract_dockerfile_from_response(&full_llm_response) {
         Some(content) => content,
         None => {
             warn!("Could not extract Dockerfile from LLM response, using raw response");
-            dockerfile_content
+            full_llm_response.clone()
         }
     };
 
+    // Save the full response with reasoning to a separate file
+    let reasoning_path = Path::new(&config.get_dockerfile_path(&problem.id))
+        .with_file_name(format!("dockerfile_reasoning_{}.md", problem.id));
+    
+    fs::create_dir_all(reasoning_path.parent().unwrap()).context(format!(
+        "Failed to create directory for Dockerfile reasoning at {:?}",
+        reasoning_path.parent().unwrap()
+    ))?;
+    
+    fs::write(&reasoning_path, &full_llm_response).context(format!(
+        "Failed to write Dockerfile reasoning to {:?}",
+        reasoning_path
+    ))?;
+    
     info!("Generated Dockerfile content");
+    info!("Saved Dockerfile reasoning to {:?}", reasoning_path);
 
     // Check if there are any setup/lint/test scripts from the scripts stage
     let setup_script_path = trajectory_store.problem_dir().join("setup-script.sh");
@@ -517,15 +532,27 @@ async fn update_dockerfile_from_error(
         .context("Failed to get Dockerfile fix from LLM")?;
 
     // Extract the updated Dockerfile content
-    let updated_dockerfile = llm_response.content.clone();
+    let full_llm_response = llm_response.content.clone();
+
+    // Save the reasoning to a file
+    let reasoning_path = dockerfile_path.with_file_name(
+        format!("dockerfile_error_reasoning_{}.md", problem.id)
+    );
+    
+    fs::write(&reasoning_path, &full_llm_response).context(format!(
+        "Failed to write Dockerfile error reasoning to {:?}",
+        reasoning_path
+    ))?;
+    
+    info!("Saved Dockerfile error reasoning to {:?}", reasoning_path);
 
     // Try to extract the Dockerfile content from markdown code blocks
-    match extract_dockerfile_from_response(&updated_dockerfile) {
+    match extract_dockerfile_from_response(&full_llm_response) {
         Some(content) => Ok(content),
         None => {
             // If we can't extract a code block, try to look for lines that might be Dockerfile instructions
             // This is a fallback in case the LLM responds in a different format
-            let lines = updated_dockerfile.lines();
+            let lines = full_llm_response.lines();
             let dockerfile_lines: Vec<_> = lines
                 .filter(|line| {
                     line.contains("FROM ")

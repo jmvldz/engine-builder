@@ -263,9 +263,8 @@ Please provide your ranking and explanation as specified in the system prompt."#
     )
 }
 
-
 /// System prompt for test-focused Dockerfile generation
-pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile specifically optimized for RUNNING TESTS in a project based on the context from provided code files. You will need to determine:
+pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile specifically for RUNNING TESTS in a project based on the context from provided code files. You will need to determine:
 
 1. The appropriate base image for testing
 2. Required system-level dependencies including test frameworks
@@ -273,32 +272,34 @@ pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker c
 4. Files to copy
 5. Environment variables needed for testing
 6. Test configuration
-7. Command to run the tests
 
 The test Dockerfile should follow best practices:
 - Use specific image tags instead of 'latest'
-- Leverage layer caching properly for faster test runs
-- Clean up unnecessary build artifacts
+- Leverage layer caching properly
 - Include testing frameworks and dependencies
-- Set up the environment for running tests efficiently
-- Be optimized for test execution
+- Set up the environment for running tests
 
-IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
-Anything that may change frequently (environment variables, packages, language-specific dependencies or package downloads etc.) should be placed in a setup-script.sh,
-which will be generated separately and expected to run before other scripts.
+CRITICAL: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
+Any language-specific package installation MUST be excluded from the Dockerfile and handled by the setup-script.sh instead.
 
-CRITICAL: Do NOT include any language-specific package installation commands in the Dockerfile. For example:
+CRITICAL: Do NOT include ANY language-specific package installation commands in the Dockerfile. For example:
 - Do NOT include pip, pip3, poetry, pipenv commands for Python packages
 - Do NOT include npm, yarn, pnpm commands for JavaScript packages
 - Do NOT include cargo, rustup commands for Rust packages
 - Do NOT include go get, go install commands for Go packages
 - Do NOT include gem commands for Ruby packages
 - Do NOT include maven, gradle, mvn commands for Java packages
-- Do NOT include apt-get, apk, yum commands for language packages
 
-All language-specific package installation should happen in the setup-script.sh instead.
+Use the Dockerfile ONLY for:
+- Setting up the base image
+- Installing system packages required for the language runtime
+- Setting up environment variables and paths
+- Copying necessary files
 
-CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
+All language-specific package installation MUST happen in the setup-script.sh instead,
+which will be generated separately and expected to run before other scripts.
+
+CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine
 or a distroless image, you MUST include a step to install bash. For example:
 - For Alpine: RUN apk add --no-cache bash
 - For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
@@ -314,12 +315,11 @@ Analyze the code files to understand:
 
 Your output should include:
 1. A detailed explanation of your reasoning about the test setup
-2. A complete, ready-to-use Dockerfile optimized for running tests with explanatory comments
+2. A complete, ready-to-use Dockerfile for running tests with explanatory comments
 3. A summary of key choices regarding test configuration
 
-The Dockerfile should be properly formatted and follow Docker best practices while being optimized for testing.
+The Dockerfile should be properly formatted and follow Docker best practices.
 "#;
-
 
 /// Generate a test-focused dockerfile generation prompt
 pub fn get_test_dockerfile_user_prompt(
@@ -388,7 +388,18 @@ Common Docker build errors include:
 - Syntax errors in the Dockerfile
 - Missing bash executable
 
-CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
+CRITICAL: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
+Any language-specific package installation MUST be excluded from the Dockerfile and handled by the setup-script.sh instead.
+
+CRITICAL: Do NOT include ANY language-specific package installation commands in the Dockerfile. For example:
+- Do NOT include pip, pip3, poetry, pipenv commands for Python packages
+- Do NOT include npm, yarn, pnpm commands for JavaScript packages
+- Do NOT include cargo, rustup commands for Rust packages
+- Do NOT include go get, go install commands for Go packages
+- Do NOT include gem commands for Ruby packages
+- Do NOT include maven, gradle, mvn commands for Java packages
+
+CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine
 or a distroless image, you MUST include a step to install bash. For example:
 - For Alpine: RUN apk add --no-cache bash
 - For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
@@ -604,7 +615,7 @@ The script should be properly formatted and follow shell scripting best practice
 pub const SETUP_SCRIPT_SYSTEM_PROMPT: &str = r#"You are an expert in creating shell scripts for setting up environments in software projects. You will create a setup script based on the context from provided code files. You will need to determine:
 
 1. Environment variables that need to be set
-2. Packages that need to be installed
+2. Language-specific packages that need to be installed (like Python packages via pip, Node.js modules via npm, etc.)
 3. Any configuration or initialization steps
 4. Other preparation steps needed before running tests or linters
 
@@ -615,12 +626,28 @@ The script should follow best practices:
 - Be executable and standalone
 
 IMPORTANT: This setup script will be run BEFORE any other scripts (lint-script.sh, test-script.sh).
-It should contain ALL environment setup, package installation, and preparation steps needed.
+It should contain environment setup, language-specific package installation, and preparation steps needed.
+
+IMPORTANT: Do NOT include system-level package installations via package managers like apt, yum, apk, or dnf.
+For example, DO NOT include commands like:
+- apt-get install
+- apt install
+- yum install
+- apk add
+- dnf install
+
+Assume that all system-level dependencies are already installed or will be installed separately in the Dockerfile.
+Instead, focus ONLY on language-specific package installations and environment setup, such as:
+- Python packages via pip, pipenv, poetry
+- Node.js packages via npm, yarn, pnpm
+- Rust crates via cargo
+- Go modules via go get
+- Ruby gems via gem
+- PHP packages via composer
 
 IMPORTANT: ALWAYS assume the script will be running in a CI environment. This means:
 - No interactive prompts or user input
-- All commands must be non-interactive (use -y flags for apt, etc.)
-- Environment might be minimal, so install all required dependencies
+- All commands must be non-interactive
 - No assumptions about pre-installed tools (except basic ones like bash)
 - Use environment variables with defaults for configuration
 
@@ -644,7 +671,7 @@ so your setup script must ensure the environment is completely ready for them.
 
 Analyze the code files to understand:
 - The programming language and framework used
-- Required packages and dependencies
+- Required language-specific packages and dependencies
 - Environment variables needed
 - Configuration needed for testing and linting
 
