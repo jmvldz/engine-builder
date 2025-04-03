@@ -263,61 +263,6 @@ Please provide your ranking and explanation as specified in the system prompt."#
     )
 }
 
-/// System prompt for Dockerfile generation
-pub const DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile for a project based on the context from provided code files. You will need to determine:
-
-1. The appropriate base image
-2. Required system-level dependencies
-3. Build steps
-4. Files to copy
-5. Environment variables
-6. Runtime configuration
-7. Entry point or command
-
-The Dockerfile should follow best practices:
-- Use specific image tags instead of 'latest'
-- Leverage layer caching properly
-- Clean up unnecessary build artifacts
-- Follow multi-stage builds when appropriate
-- Minimize image size
-
-IMPORTANT: Your Dockerfile should ONLY include system-level dependencies and setup that rarely changes.
-Anything that may change frequently (environment variables, packages, etc.) should be placed in a setup-script.sh,
-which will be generated separately and expected to run before other scripts.
-
-CRITICAL: Do NOT include any language-specific package installation commands in the Dockerfile. For example:
-- Do NOT include pip, pip3, poetry, pipenv commands for Python packages
-- Do NOT include npm, yarn, pnpm commands for JavaScript packages
-- Do NOT include cargo, rustup commands for Rust packages
-- Do NOT include go get, go install commands for Go packages
-- Do NOT include gem commands for Ruby packages
-- Do NOT include maven, gradle, mvn commands for Java packages
-- Do NOT include apt-get, apk, yum commands for language packages
-
-All language-specific package installation should happen in the setup-script.sh instead.
-
-CRITICAL: ALWAYS ensure that bash is installed in the Dockerfile. If using a minimal base image like Alpine 
-or a distroless image, you MUST include a step to install bash. For example:
-- For Alpine: RUN apk add --no-cache bash
-- For Debian/Ubuntu: RUN apt-get update && apt-get install -y bash
-This is required because scripts will be executed using bash.
-
-Analyze the code files to understand:
-- The programming language and runtime requirements
-- Package managers used
-- System-level dependencies needed
-- How the application is built
-- How the application is started
-- Required configuration
-- External services needed
-
-Your output should include:
-1. A detailed explanation of your reasoning
-2. A complete, ready-to-use Dockerfile with comments explaining key decisions
-3. A summary of key choices regarding base image, build process, and runtime configuration
-
-The Dockerfile should be properly formatted and follow Docker best practices.
-"#;
 
 /// System prompt for test-focused Dockerfile generation
 pub const TEST_DOCKERFILE_SYSTEM_PROMPT: &str = r#"You are an expert in Docker containerization and will create a Dockerfile specifically optimized for RUNNING TESTS in a project based on the context from provided code files. You will need to determine:
@@ -375,53 +320,6 @@ Your output should include:
 The Dockerfile should be properly formatted and follow Docker best practices while being optimized for testing.
 "#;
 
-/// Generate a dockerfile generation prompt
-pub fn get_dockerfile_user_prompt(
-    problem_statement: &str,
-    ranked_files: &[RankedCodebaseFile],
-    file_contents: &[(String, String)], // (path, content) pairs
-) -> String {
-    let mut file_content_sections = Vec::new();
-
-    for (path, content) in file_contents {
-        file_content_sections.push(format!(
-            "File: {}\n<content>\n{}\n</content>",
-            path, content
-        ));
-    }
-
-    format!(
-        r#"Please create a Dockerfile for the following project based on the ranked files and their contents.
-
-Problem Description:
-<problem>
-{}
-</problem>
-
-Ranked Files (most important first):
-{}
-
-File Contents:
-{}
-
-Based on these files, please create a comprehensive Dockerfile that will properly containerize this application.
-Ensure the Dockerfile follows best practices and addresses all the requirements implied by the code.
-
-Your response should include:
-1. Your analysis of the application type, language, and requirements
-2. A complete, ready-to-use Dockerfile with explanatory comments
-3. A brief summary of key decisions made (base image choice, build process, etc.)
-
-Format your Dockerfile between ```dockerfile and ``` tags."#,
-        problem_statement,
-        ranked_files
-            .iter()
-            .map(|f| f.path.clone())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        file_content_sections.join("\n\n")
-    )
-}
 
 /// Generate a test-focused dockerfile generation prompt
 pub fn get_test_dockerfile_user_prompt(
