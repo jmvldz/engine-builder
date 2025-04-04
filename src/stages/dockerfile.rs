@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use regex::Regex;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::config::{Config, DockerfileConfig};
@@ -116,7 +116,7 @@ pub async fn generate_dockerfile(
         }
     };
 
-    // Save the full response with reasoning to a separate file
+    // Save the full response with reasoning to the reasoning directory
     let reasoning_path = Path::new(&config.get_dockerfile_path(&problem.id))
         .with_file_name(format!("dockerfile_reasoning_{}.md", problem.id));
     
@@ -129,6 +129,22 @@ pub async fn generate_dockerfile(
         "Failed to write Dockerfile reasoning to {:?}",
         reasoning_path
     ))?;
+    
+    // Also save to the structured reasoning storage
+    let metadata = serde_json::json!({
+        "model": config.dockerfile.model,
+        "tokens": llm_response.usage.total_tokens,
+        "temperature": config.dockerfile.temperature
+    });
+    
+    crate::stages::overview::save_reasoning(
+        config,
+        &problem,
+        "dockerfile",
+        "",
+        &full_llm_response,
+        Some(metadata),
+    ).context("Failed to save Dockerfile reasoning to structured storage")?;
     
     info!("Generated Dockerfile content");
     info!("Saved Dockerfile reasoning to {:?}", reasoning_path);
@@ -382,7 +398,7 @@ pub async fn build_docker_image(
         };
         
         let updated_dockerfile =
-            update_dockerfile_from_error(&dockerfile_config, problem, &dockerfile_path, &error_output)
+            update_dockerfile_from_error(&dockerfile_config, problem, &dockerfile_path, &error_output, retry_count)
                 .await?;
 
         // Save the updated Dockerfile
@@ -439,6 +455,7 @@ async fn update_dockerfile_from_error(
     problem: &SWEBenchProblem,
     dockerfile_path: &Path,
     error_output: &str,
+    attempt: usize,
 ) -> Result<String> {
     // Read the current Dockerfile
     let dockerfile_content = fs::read_to_string(dockerfile_path).context(format!(
@@ -446,24 +463,19 @@ async fn update_dockerfile_from_error(
         dockerfile_path
     ))?;
 
-    // Get the parent config to access the API key
+    // Get API key from environment
+    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+    
+    // Get the parent config to access additional settings
     let parent_config = std::env::var("ENGINE_BUILDER_CONFIG")
         .map(|path| crate::config::Config::from_file(Some(&path)))
         .unwrap_or_else(|_| crate::config::Config::from_file(None));
-    
-    // Get API key, first from environment then from config
-    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| {
-        parent_config
-            .ok()
-            .map(|c| c.anthropic_api_key)
-            .unwrap_or_default()
-    });
 
     // Create LLM config with the API key
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
         model: config.model.clone().unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
-        api_key: api_key,
+        api_key,
         base_url: None,
         timeout: 60,
         max_retries: 3,
@@ -512,6 +524,58 @@ async fn update_dockerfile_from_error(
         "Failed to write Dockerfile error reasoning to {:?}",
         reasoning_path
     ))?;
+    
+    // Use parent_config if available, or create a minimal one
+    let parent_config_val = match parent_config {
+        Ok(ref conf) => conf.clone(),
+        Err(_) => {
+            // Just use environment variables for API keys and minimal default settings
+            let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+            
+            // Load the existing CodebaseConfig since it doesn't have a Default impl
+            let codebase = crate::config::CodebaseConfig {
+                path: if let Some(path) = problem.get_codebase_path() {
+                    path.clone()
+                } else {
+                    PathBuf::from(".")
+                },
+                problem_id: problem.id.clone(),
+                problem_statement: problem.problem_statement.clone(),
+                exclusions_path: "exclusions.json".to_string(),
+            };
+            
+            crate::config::Config {
+                anthropic_api_key: api_key,
+                model: "claude-3-opus-20240229".to_string(),
+                relevance: crate::config::RelevanceConfig::default(),
+                ranking: crate::config::RankingConfig::default(),
+                codebase,
+                dockerfile: crate::config::DockerfileConfig::default(),
+                scripts: crate::config::ScriptConfig::default(),
+                chat: crate::config::ChatConfig::default(),
+                container: crate::config::ContainerConfig::default(),
+                observability: crate::config::ObservabilityConfig::default(),
+                output_path: None,
+            }
+        }
+    };
+    
+    // Add attempt number as identifier
+    let metadata = serde_json::json!({
+        "model": config.model,
+        "tokens": llm_response.usage.total_tokens,
+        "temperature": config.temperature,
+        "attempt": attempt
+    });
+    
+    crate::stages::overview::save_reasoning(
+        &parent_config_val,
+        problem,
+        "dockerfile_error",
+        &format!("_{}", attempt),
+        &full_llm_response,
+        Some(metadata),
+    ).context("Failed to save Dockerfile error reasoning to structured storage")?;
     
     info!("Saved Dockerfile error reasoning to {:?}", reasoning_path);
 

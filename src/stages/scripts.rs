@@ -228,6 +228,22 @@ pub async fn generate_scripts(
     let setup_cost = client.calculate_cost(&setup_usage);
     info!("Setup script generation LLM usage: {}", setup_usage);
     info!("Setup script generation LLM cost: {}", setup_cost);
+    
+    // Save setup script reasoning
+    let metadata = serde_json::json!({
+        "model": config.scripts.model,
+        "tokens": setup_usage.total_tokens,
+        "temperature": config.scripts.temperature
+    });
+    
+    crate::stages::overview::save_reasoning(
+        config,
+        &problem,
+        "setup_script",
+        "",
+        &setup_response.content,
+        Some(metadata),
+    ).context("Failed to save setup script reasoning to structured storage")?;
 
     // Extract setup script content
     let setup_script_content = extract_script(&setup_response.content)
@@ -294,6 +310,22 @@ pub async fn generate_scripts(
     info!("Lint script generation LLM usage: {}", lint_usage);
     info!("Lint script generation LLM cost: {}", lint_cost);
 
+    // Save lint script reasoning
+    let metadata = serde_json::json!({
+        "model": config.scripts.model,
+        "tokens": lint_usage.total_tokens,
+        "temperature": config.scripts.temperature
+    });
+    
+    crate::stages::overview::save_reasoning(
+        config,
+        &problem,
+        "lint_script",
+        "",
+        &lint_response.content,
+        Some(metadata),
+    ).context("Failed to save lint script reasoning to structured storage")?;
+
     // Extract lint script content
     let lint_script_content = extract_script(&lint_response.content)
         .context("Failed to extract lint script content from LLM response")?;
@@ -352,6 +384,22 @@ pub async fn generate_scripts(
     let test_cost = client.calculate_cost(&test_usage);
     info!("Test script generation LLM usage: {}", test_usage);
     info!("Test script generation LLM cost: {}", test_cost);
+
+    // Save test script reasoning
+    let metadata = serde_json::json!({
+        "model": config.scripts.model,
+        "tokens": test_usage.total_tokens,
+        "temperature": config.scripts.temperature
+    });
+    
+    crate::stages::overview::save_reasoning(
+        config,
+        &problem,
+        "test_script",
+        "",
+        &test_response.content,
+        Some(metadata),
+    ).context("Failed to save test script reasoning to structured storage")?;
 
     // Extract test script content
     let test_script_content = extract_script(&test_response.content)
@@ -443,6 +491,22 @@ Create a script called 'single-test-script.sh' that runs just one specified test
     let single_test_cost = client.calculate_cost(&single_test_usage);
     info!("Single test script generation LLM usage: {}", single_test_usage);
     info!("Single test script generation LLM cost: {}", single_test_cost);
+
+    // Save single test script reasoning
+    let metadata = serde_json::json!({
+        "model": config.scripts.model,
+        "tokens": single_test_usage.total_tokens,
+        "temperature": config.scripts.temperature
+    });
+    
+    crate::stages::overview::save_reasoning(
+        config,
+        &problem,
+        "single_test_script",
+        "",
+        &single_test_response.content,
+        Some(metadata),
+    ).context("Failed to save single test script reasoning to structured storage")?;
 
     // Extract single test script content
     let single_test_script_content = extract_script(&single_test_response.content)
