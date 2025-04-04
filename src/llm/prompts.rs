@@ -312,6 +312,7 @@ Analyze the code files to understand:
 - How tests are organized and run
 - System-level dependencies needed for testing
 - Configuration needed for tests
+- Any compilers that might be needed and should be installed
 
 Your output should include:
 1. A detailed explanation of your reasoning about the test setup

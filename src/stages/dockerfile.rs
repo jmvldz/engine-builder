@@ -9,9 +9,9 @@ use crate::config::{Config, DockerfileConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{
     get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
+    DOCKERFILE_ERROR_SYSTEM_PROMPT, TEST_DOCKERFILE_SYSTEM_PROMPT,
 };
 use crate::models::problem::SWEBenchProblem;
-use crate::models::relevance::RelevanceStatus;
 use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate a test-focused Dockerfile based on ranked files
@@ -52,7 +52,11 @@ pub async fn generate_dockerfile(
         ));
     }
 
-    info!("Found {} ranked files", ranked_files.len());
+    // Limit to top 5 files to reduce context size
+    let max_files = 5;
+    let ranked_files = ranked_files.into_iter().take(max_files).collect::<Vec<_>>();
+
+    info!("Found {} ranked files, using top {} for Dockerfile generation", ranked_files.len(), max_files);
 
     // Load file contents
     let mut file_contents = Vec::new();
@@ -78,13 +82,19 @@ pub async fn generate_dockerfile(
 
     info!("Generating Dockerfile from ranked files");
 
-    // Generate the prompt for the LLM
-    let prompt = get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
+    // Generate the user prompt for the LLM
+    let user_prompt = get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
+    
+    // Combine with system prompt
+    let combined_dockerfile_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        TEST_DOCKERFILE_SYSTEM_PROMPT, user_prompt
+    );
 
     // Send the request to the LLM
     let llm_response = client
         .completion_with_tracing(
-            &prompt,
+            &combined_dockerfile_prompt,
             config.dockerfile.max_tokens,
             config.dockerfile.temperature,
             None,
@@ -223,53 +233,6 @@ pub async fn build_docker_image(
             "Failed to create trajectory store for problem: {}",
             problem.id
         ))?;
-
-    // Load all relevance decisions
-    let all_decisions = trajectory_store
-        .load_all_relevance_decisions()
-        .context(format!(
-            "Failed to load relevance decisions for problem: {}",
-            problem.id
-        ))?;
-
-    // Get relevant files
-    let relevant_files = all_decisions
-        .into_iter()
-        .filter(|(_, decision)| decision.status == RelevanceStatus::Relevant)
-        .map(|(path, decision)| (path, decision.summary.unwrap_or_default()))
-        .collect::<Vec<_>>();
-
-    if relevant_files.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No relevant files found for problem: {}",
-            problem.id
-        ));
-    }
-
-    info!("Found {} relevant files", relevant_files.len());
-
-    // Limit to top N files to avoid context overflow
-    let max_files = 10;
-    let relevant_files = relevant_files
-        .into_iter()
-        .take(max_files)
-        .collect::<Vec<_>>();
-
-    // Load file contents
-    let mut file_contents = Vec::new();
-
-    for (path, _) in &relevant_files {
-        // Clone the problem first to allow for mutable borrowing in get_file
-        let mut problem_clone = problem.clone();
-        match problem_clone.get_file(path) {
-            Ok(file_data) => {
-                file_contents.push((path.clone(), file_data.content.clone()));
-            }
-            Err(e) => {
-                warn!("Failed to read file {}: {}", path, e);
-            }
-        }
-    }
 
     let mut retry_count = 0;
     while retry_count <= max_retries {
@@ -511,17 +474,23 @@ async fn update_dockerfile_from_error(
         .await
         .context("Failed to create LLM client")?;
 
-    // Generate the prompt for the LLM
-    let prompt = get_dockerfile_error_user_prompt(
+    // Generate the user prompt for the LLM
+    let user_prompt = get_dockerfile_error_user_prompt(
         &problem.problem_statement,
         &dockerfile_content,
         error_output,
+    );
+    
+    // Combine with system prompt
+    let combined_error_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        DOCKERFILE_ERROR_SYSTEM_PROMPT, user_prompt
     );
 
     // Send the request to the LLM
     let llm_response = client
         .completion_with_tracing(
-            &prompt,
+            &combined_error_prompt,
             config.max_tokens,
             config.temperature,
             None,
