@@ -39,7 +39,7 @@ jobs:
 
       - name: Clone FlexPrice repository at specific commit
         run: |
-          git clone --depth 1 https://github.com/flexprice/flexprice.git /tmp/flexprice
+          git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
           cd /tmp/flexprice
           git checkout f43d535deb5379c7ee1a4ddb113f421071e36c31
           echo "FlexPrice repo cloned to /tmp/flexprice at commit f43d535deb5379c7ee1a4ddb113f421071e36c31"
