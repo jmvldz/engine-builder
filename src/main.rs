@@ -47,6 +47,8 @@ enum Command {
     GenerateScripts,
     /// Generate a test-focused Dockerfile based on ranked files (fifth stage of pipeline)
     Dockerfile,
+    /// Generate an overview document of all reasoning across stages
+    Overview,
     /// Build a Docker image from the generated Dockerfile
     BuildImage {
         /// Tag name for the Docker image
@@ -268,6 +270,10 @@ async fn main() -> Result<()> {
             engine_builder::stages::scripts::generate_scripts_from_ranking(&config, problem.clone()).await?;
             info!("Generating test-focused Dockerfile based on ranked files");
             dockerfile::generate_dockerfile(&config, problem.clone()).await?;
+            
+            // Finally, generate the overview document with reasoning from all stages
+            info!("Generating overview document");
+            engine_builder::stages::overview::generate_overview(&config, &problem).await?;
         }
         Command::FileSelection => {
             info!("Running file selection process");
@@ -282,6 +288,10 @@ async fn main() -> Result<()> {
         Command::Dockerfile => {
             info!("Generating test-focused Dockerfile based on ranked files");
             dockerfile::generate_dockerfile(&config, problem.clone()).await?;
+        }
+        Command::Overview => {
+            info!("Generating overview document for problem: {}", problem.id);
+            engine_builder::stages::overview::generate_overview(&config, &problem).await?;
         }
         Command::BuildImage { tag } => {
             info!("Building Docker image with tag: {}", tag);
