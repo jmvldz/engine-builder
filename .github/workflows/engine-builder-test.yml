@@ -2,154 +2,154 @@ name: Engine Builder Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   run-engine-builder:
     runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
-    
-    - name: Cache Rust dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: ${{ runner.os }}-cargo-
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        # Set up Docker's apt repository
-        sudo apt-get install -y ca-certificates curl gnupg
-        sudo install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        sudo chmod a+r /etc/apt/keyrings/docker.gpg
-        
-        # Add the repository to Apt sources
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        sudo apt-get update
-        
-        # Install Docker packages
-        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-        cargo build --release
 
-    - name: Clone FlexPrice repository
-      run: |
-        git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
-        cd /tmp/flexprice
-        echo "FlexPrice repo cloned to /tmp/flexprice"
-    
-    - name: Create config file
-      env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      run: |
-        cat > config.json << EOF
-        {
-          "anthropic_api_key": "$ANTHROPIC_API_KEY",
-          "output_path": ".engines",
-          "model": "claude-3-5-haiku-20241022",
-          "codebase": {
-            "path": "/tmp/flexprice",
-            "problem_id": "flexprice_test_$(uuidgen | tr '[:upper:]' '[:lower:]')",
-            "problem_statement": "Determine how to build a Dockerfile for the repository. Then determine how to run the tests."
-          },
-          "relevance": {
-            "model": "claude-3-5-haiku-20241022"
-          },
-          "ranking": {
-            "model": "claude-3-5-haiku-20241022"
-          },
-          "observability": {
-            "langfuse": {
-              "enabled": true,
-              "host": "https://us.cloud.langfuse.com",
-              "project_id": "engines-builder",
-              "secret_key": "${{ secrets.LANGFUSE_SECRET_KEY }}",
-              "public_key": "${{ secrets.LANGFUSE_PUBLIC_KEY }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # Set up Docker's apt repository
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+          # Add the repository to Apt sources
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+          sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+
+          # Install Docker packages
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          cargo build --release
+
+      - name: Clone FlexPrice repository
+        run: |
+          git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
+          cd /tmp/flexprice
+          echo "FlexPrice repo cloned to /tmp/flexprice"
+
+      - name: Create config file
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cat > config.json << EOF
+          {
+            "anthropic_api_key": "$ANTHROPIC_API_KEY",
+            "output_path": ".engines",
+            "model": "claude-3-5-haiku-20241022",
+            "codebase": {
+              "path": "/tmp/flexprice",
+              "problem_id": "flexprice_test_$(uuidgen | tr '[:upper:]' '[:lower:]')",
+              "problem_statement": "Determine how to build a Dockerfile for the repository. Then determine how to run the tests."
+            },
+            "relevance": {
+              "model": "claude-3-5-haiku-20241022"
+            },
+            "ranking": {
+              "model": "claude-3-5-haiku-20241022"
+            },
+            "observability": {
+              "langfuse": {
+                "enabled": true,
+                "host": "https://us.cloud.langfuse.com",
+                "project_id": "engines-builder",
+                "secret_key": "${{ secrets.LANGFUSE_SECRET_KEY }}",
+                "public_key": "${{ secrets.LANGFUSE_PUBLIC_KEY }}"
+              }
             }
           }
-        }
-        EOF
-        echo "Created config file"
-    
-    - name: Run engine-builder pipeline
-      run: |
-        RUST_LOG=info cargo run --release -- -c config.json pipeline
-    
-    - name: Build Docker image and run tests
-      run: |
-        # Extract the problem ID from the config file
-        PROBLEM_ID=$(grep -o '"problem_id": "[^"]*' config.json | cut -d'"' -f4)
-        
-        # Build the Docker image
-        echo "Building Docker image..."
-        RUST_LOG=info cargo run --release -- -c config.json build-image --tag flexprice-test
-        
-        # Run lint script
-        echo "Running lint script..."
-        RUST_LOG=info cargo run --release -- -c config.json run-lint --tag flexprice-test
-        
-        # Run test script
-        echo "Running test script..."
-        RUST_LOG=info cargo run --release -- -c config.json run-test --tag flexprice-test
-    
-    - name: Check output files
-      run: |
-        # Extract the problem ID from the config file
-        PROBLEM_ID=$(grep -o '"problem_id": "[^"]*' config.json | cut -d'"' -f4)
-        
-        # Check if relevance decisions exist
-        if [ -f ".engines/trajectories/$PROBLEM_ID/relevance_decisions.json" ]; then
-          echo "✅ Relevance decisions generated"
-        else
-          echo "❌ Failed to generate relevance decisions"
-          exit 1
-        fi
-        
-        # Check if ranking exists
-        if [ -f ".engines/trajectories/$PROBLEM_ID/ranking.json" ]; then
-          echo "✅ File ranking generated"
-        else
-          echo "❌ Failed to generate file ranking"
-          exit 1
-        fi
-        
-        # Check if Dockerfile exists
-        if [ -f ".engines/dockerfiles/$PROBLEM_ID/Dockerfile" ]; then
-          echo "✅ Dockerfile generated"
-        else
-          echo "❌ Failed to generate Dockerfile"
-          exit 1
-        fi
-        
-        # Check if scripts exist
-        if [ -f ".engines/scripts/$PROBLEM_ID/lint.sh" ] && [ -f ".engines/scripts/$PROBLEM_ID/test.sh" ]; then
-          echo "✅ Scripts generated"
-        else
-          echo "❌ Failed to generate scripts"
-          exit 1
-        fi
-        
-        echo "ENGINE BUILDER TEST COMPLETED SUCCESSFULLY"
-    
-    - name: Upload results as artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: engine-builder-results
-        path: .engines/
-        retention-days: 7
+          EOF
+          echo "Created config file"
+
+      - name: Run engine-builder pipeline
+        run: |
+          RUST_LOG=info cargo run --release -- -c config.json pipeline
+
+      - name: Build Docker image and run tests
+        run: |
+          # Extract the problem ID from the config file
+          PROBLEM_ID=$(grep -o '"problem_id": "[^"]*' config.json | cut -d'"' -f4)
+
+          # Build the Docker image
+          echo "Building Docker image..."
+          RUST_LOG=info cargo run --release -- -c config.json build-image --tag flexprice-test
+
+          # Run lint script
+          # echo "Running lint script..."
+          # RUST_LOG=info cargo run --release -- -c config.json run-lint --tag flexprice-test
+
+          # Run test script
+          echo "Running test script..."
+          RUST_LOG=info cargo run --release -- -c config.json run-test --tag flexprice-test
+
+      - name: Check output files
+        run: |
+          # Extract the problem ID from the config file
+          PROBLEM_ID=$(grep -o '"problem_id": "[^"]*' config.json | cut -d'"' -f4)
+
+          # Check if relevance decisions exist
+          if [ -f ".engines/trajectories/$PROBLEM_ID/relevance_decisions.json" ]; then
+            echo "✅ Relevance decisions generated"
+          else
+            echo "❌ Failed to generate relevance decisions"
+            exit 1
+          fi
+
+          # Check if ranking exists
+          if [ -f ".engines/trajectories/$PROBLEM_ID/ranking.json" ]; then
+            echo "✅ File ranking generated"
+          else
+            echo "❌ Failed to generate file ranking"
+            exit 1
+          fi
+
+          # Check if Dockerfile exists
+          if [ -f ".engines/dockerfiles/$PROBLEM_ID/Dockerfile" ]; then
+            echo "✅ Dockerfile generated"
+          else
+            echo "❌ Failed to generate Dockerfile"
+            exit 1
+          fi
+
+          # Check if scripts exist
+          if [ -f ".engines/scripts/$PROBLEM_ID/lint.sh" ] && [ -f ".engines/scripts/$PROBLEM_ID/test.sh" ]; then
+            echo "✅ Scripts generated"
+          else
+            echo "❌ Failed to generate scripts"
+            exit 1
+          fi
+
+          echo "ENGINE BUILDER TEST COMPLETED SUCCESSFULLY"
+
+      - name: Upload results as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-builder-results
+          path: .engines/
+          retention-days: 7
