@@ -18,6 +18,9 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        
+      - name: Build Rust project
+        run: cargo build --release
 
       - name: Install dependencies
         run: |
@@ -35,7 +38,6 @@ jobs:
 
           # Install Docker packages
           sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-          cargo build --release
 
       - name: Clone FlexPrice repository at specific commit
         run: |
