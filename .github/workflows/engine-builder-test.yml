@@ -48,11 +48,12 @@ jobs:
           sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
           cargo build --release
 
-      - name: Clone FlexPrice repository
+      - name: Clone FlexPrice repository at specific commit
         run: |
           git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
           cd /tmp/flexprice
-          echo "FlexPrice repo cloned to /tmp/flexprice"
+          git checkout f43d535deb5379c7ee1a4ddb113f421071e36c31
+          echo "FlexPrice repo cloned to /tmp/flexprice at commit f43d535deb5379c7ee1a4ddb113f421071e36c31"
 
       - name: Create config file
         env:
