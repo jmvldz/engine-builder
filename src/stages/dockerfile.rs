@@ -9,6 +9,7 @@ use crate::config::{Config, DockerfileConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::{
     get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
+    TEST_DOCKERFILE_SYSTEM_PROMPT,
 };
 use crate::models::problem::SWEBenchProblem;
 use crate::models::relevance::RelevanceStatus;
@@ -21,70 +22,104 @@ pub async fn generate_dockerfile(
 ) -> Result<()> {
     info!("Starting test-focused Dockerfile generation");
 
-    // Get the trajectory directory for this problem
+    // Get trajectory directory for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem)
+        .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
 
-    // Check if ranking exists
-    if !trajectory_store.ranking_exists() {
-        return Err(anyhow::anyhow!(
-            "Ranking not found for problem: {}. Run ranking step first.",
-            problem.id
-        ));
+    // Load all relevance decisions
+    let all_decisions = trajectory_store.load_all_relevance_decisions()
+        .context(format!("Failed to load relevance decisions for problem: {}", problem.id))?;
+
+    // Get relevant files
+    let relevant_files = all_decisions.into_iter()
+        .filter(|(_, decision)| decision.status == RelevanceStatus::Relevant)
+        .map(|(path, decision)| (path, decision.summary.unwrap_or_default()))
+        .collect::<Vec<_>>();
+
+    if relevant_files.is_empty() {
+        return Err(anyhow!("No relevant files found for problem: {}", problem.id));
     }
 
-    // Load the ranking
-    let ranking_context = trajectory_store
-        .load_ranking()
-        .context(format!("Failed to load ranking for problem: {}", problem.id))?;
-
-    // Extract ranked files
-    let ranked_files = ranking_context.ranked_files;
-
-    if ranked_files.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No ranked files found for problem: {}",
-            problem.id
-        ));
-    }
-
-    info!("Found {} ranked files", ranked_files.len());
+    info!("Found {} relevant files", relevant_files.len());
 
     // Load file contents
     let mut file_contents = Vec::new();
-
-    for file in &ranked_files {
-        match problem.get_file(&file.path) {
+    for (path, _) in &relevant_files {
+        match problem.get_file(path) {
             Ok(file_data) => {
-                file_contents.push((file.path.clone(), file_data.content.clone()));
+                file_contents.push((path.clone(), file_data.content.clone()));
             }
             Err(e) => {
-                warn!("Failed to read file {}: {}", file.path, e);
+                warn!("Failed to read file {}: {}", path, e);
             }
         }
     }
 
-    // Create LLM config using the config's to_llm_config method
+    // Create LLM client from config
     let llm_config = config.to_llm_config(&config.dockerfile.model);
-
-    // Create LLM client
     let client = create_client(&llm_config)
         .await
         .context("Failed to create LLM client")?;
 
-    info!("Generating Dockerfile from ranked files");
+    info!("Generating Dockerfile from relevant files");
 
     // Generate the prompt for the LLM
-    let prompt = get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
+    let user_prompt = get_dockerfile_error_user_prompt(
+        &problem.problem_statement,
+        &dockerfile_content,
+        error_output,
+    );
+
+    // Create combined prompt with system instructions
+    let combined_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}", 
+        TEST_DOCKERFILE_SYSTEM_PROMPT,
+        user_prompt
+    );
+
+    // Save the reasoning to a file
+    let reasoning_path = dockerfile_path.with_file_name(
+        format!("dockerfile_error_prompt_{}.md", problem.id)
+    );
+    
+    fs::write(&reasoning_path, &combined_prompt).context(format!(
+        "Failed to write Dockerfile error prompt to {:?}",
+        reasoning_path
+    ))?;
+    
+    info!("Saved Dockerfile error prompt to {:?}", reasoning_path);
 
     // Send the request to the LLM
     let llm_response = client
         .completion_with_tracing(
-            &prompt,
+            &combined_prompt,
+            config.max_tokens,
+            config.temperature,
+            None,
+            Some(&format!("dockerfile_error_{}", problem.id)),
+            None,
+        )
+    // Save the prompt to a file
+    let prompt_path = Path::new(&config.get_dockerfile_path(&problem.id))
+        .with_file_name(format!("dockerfile_prompt_{}.md", problem.id));
+
+    fs::create_dir_all(prompt_path.parent().unwrap()).context(format!(
+        "Failed to create directory for Dockerfile prompt at {:?}",
+        prompt_path.parent().unwrap()
+    ))?;
+
+    fs::write(&prompt_path, &combined_prompt).context(format!(
+        "Failed to write Dockerfile prompt to {:?}",
+        prompt_path
+    ))?;
+
+    info!("Saved Dockerfile prompt to {:?}", prompt_path);
+
+    // Send the request to the LLM
+    let llm_response = client
+        .completion_with_tracing(
+            &combined_prompt,
             config.dockerfile.max_tokens,
             config.dockerfile.temperature,
             None,
