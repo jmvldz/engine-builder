@@ -20,7 +20,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         
       - name: Build Rust project
-        run: cargo build --release
+        run: cargo build
 
       - name: Install dependencies
         run: |
