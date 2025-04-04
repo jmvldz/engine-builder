@@ -81,7 +81,7 @@ jobs:
 
       - name: Run engine-builder pipeline
         run: |
-          RUST_LOG=info cargo run --release -- -c config.json pipeline
+          RUST_LOG=info cargo run -- -c config.json pipeline
 
       - name: Build Docker image and run tests
         run: |
@@ -90,15 +90,15 @@ jobs:
 
           # Build the Docker image
           echo "Building Docker image..."
-          RUST_LOG=info cargo run --release -- -c config.json build-image --tag flexprice-test
+          RUST_LOG=info cargo run -- -c config.json build-image --tag flexprice-test
 
           # Run lint script
           # echo "Running lint script..."
-          # RUST_LOG=info cargo run --release -- -c config.json run-lint --tag flexprice-test
+          # RUST_LOG=info cargo run -- -c config.json run-lint --tag flexprice-test
 
           # Run test script
           echo "Running test script..."
-          RUST_LOG=info cargo run --release -- -c config.json run-test --tag flexprice-test
+          RUST_LOG=info cargo run -- -c config.json run-test --tag flexprice-test
 
       - name: Check output files
         run: |
