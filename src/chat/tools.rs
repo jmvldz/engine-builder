@@ -60,7 +60,9 @@ pub fn get_tools() -> Vec<Tool> {
         },
         Tool {
             name: "dockerfile".to_string(),
-            description: "Generate a test-focused Dockerfile for running tests based on relevant files".to_string(),
+            description:
+                "Generate a test-focused Dockerfile for running tests based on relevant files"
+                    .to_string(),
             parameters: HashMap::new(),
             required_parameters: vec![],
         },
@@ -160,37 +162,37 @@ pub fn parse_tool_call(response: &str) -> Option<(String, HashMap<String, String
     if let Some(start) = response.find("TOOL:") {
         if let Some(end) = response[start..].find("\n") {
             let tool_call = &response[start + 5..start + end].trim();
-            
+
             // Parse tool name and parameters
             if let Some(open_paren) = tool_call.find('(') {
                 if let Some(close_paren) = tool_call.find(')') {
                     let tool_name = tool_call[..open_paren].trim().to_string();
                     let params_str = &tool_call[open_paren + 1..close_paren];
-                    
+
                     // Parse parameters
                     let mut params = HashMap::new();
                     for param in params_str.split(',') {
                         if let Some(eq) = param.find('=') {
                             let key = param[..eq].trim().to_string();
                             let value = param[eq + 1..].trim().to_string();
-                            
+
                             // Remove quotes if present
                             let value = if value.starts_with('"') && value.ends_with('"') {
                                 value[1..value.len() - 1].to_string()
                             } else {
                                 value
                             };
-                            
+
                             params.insert(key, value);
                         }
                     }
-                    
+
                     return Some((tool_name, params));
                 }
             }
         }
     }
-    
+
     None
 }
 
@@ -203,13 +205,10 @@ pub async fn execute_tool(
 ) -> Result<ToolResult> {
     match tool_name {
         "relevance" => {
-            let result = stages::relevance::process_codebase(
-                config,
-                &config.codebase,
-                problem.clone(),
-            )
-            .await;
-            
+            let result =
+                stages::relevance::process_codebase(config, &config.codebase, problem.clone())
+                    .await;
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -222,12 +221,8 @@ pub async fn execute_tool(
             }
         }
         "ranking" => {
-            let result = stages::ranking::process_rankings(
-                config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result = stages::ranking::process_rankings(config, problem.clone()).await;
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -248,64 +243,50 @@ pub async fn execute_tool(
                 &config.get_trajectory_dir(&problem.id),
             )
             .await;
-            
+
             if let Err(e) = result1 {
                 return Ok(ToolResult {
                     success: false,
                     output: format!("Failed during file selection: {}", e),
                 });
             }
-            
+
             // Process relevance
-            let result2 = stages::relevance::process_codebase(
-                config,
-                &config.codebase,
-                problem.clone(),
-            )
-            .await;
-            
+            let result2 =
+                stages::relevance::process_codebase(config, &config.codebase, problem.clone())
+                    .await;
+
             if let Err(e) = result2 {
                 return Ok(ToolResult {
                     success: false,
                     output: format!("Failed during relevance assessment: {}", e),
                 });
             }
-            
+
             // Run ranking
-            let result3 = stages::ranking::process_rankings(
-                config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result3 = stages::ranking::process_rankings(config, problem.clone()).await;
+
             if let Err(e) = result3 {
                 return Ok(ToolResult {
                     success: false,
                     output: format!("Failed during file ranking: {}", e),
                 });
             }
-            
+
             // Generate scripts
-            let result4 = stages::scripts::generate_scripts_from_ranking(
-                config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result4 =
+                stages::scripts::generate_scripts_from_ranking(config, problem.clone()).await;
+
             if let Err(e) = result4 {
                 return Ok(ToolResult {
                     success: false,
                     output: format!("Failed during script generation: {}", e),
                 });
             }
-            
+
             // Generate Dockerfile
-            let result5 = stages::dockerfile::generate_dockerfile(
-                config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result5 = stages::dockerfile::generate_dockerfile(config, problem.clone()).await;
+
             match result5 {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -325,7 +306,7 @@ pub async fn execute_tool(
                 &config.get_trajectory_dir(&problem.id),
             )
             .await;
-            
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -338,12 +319,8 @@ pub async fn execute_tool(
             }
         }
         "dockerfile" => {
-            let result = stages::dockerfile::generate_dockerfile(
-                &config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result = stages::dockerfile::generate_dockerfile(&config, problem.clone()).await;
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -360,14 +337,9 @@ pub async fn execute_tool(
                 .get("tag")
                 .map(|s| s.as_str())
                 .unwrap_or("engine-builder-test");
-                
-            let result = stages::dockerfile::build_docker_image(
-                config,
-                problem,
-                tag,
-            )
-            .await;
-            
+
+            let result = stages::dockerfile::build_docker_image(config, problem, tag).await;
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -380,12 +352,9 @@ pub async fn execute_tool(
             }
         }
         "generate_scripts" => {
-            let result = stages::scripts::generate_scripts_from_ranking(
-                config,
-                problem.clone(),
-            )
-            .await;
-            
+            let result =
+                stages::scripts::generate_scripts_from_ranking(config, problem.clone()).await;
+
             match result {
                 Ok(_) => Ok(ToolResult {
                     success: true,
@@ -402,14 +371,10 @@ pub async fn execute_tool(
                 .get("tag")
                 .map(|s| s.as_str())
                 .unwrap_or("engine-builder-test");
-                
-            let result = stages::container::run_lint_container(
-                problem,
-                tag,
-                &config.container,
-            )
-            .await;
-            
+
+            let result =
+                stages::container::run_lint_container(problem, tag, &config.container).await;
+
             match result {
                 Ok(container_result) => {
                     let status = if container_result.success {
@@ -417,13 +382,12 @@ pub async fn execute_tool(
                     } else {
                         "FAILED"
                     };
-                    
+
                     Ok(ToolResult {
                         success: container_result.success,
                         output: format!(
                             "Lint container completed with status: {} (exit code: {})",
-                            status,
-                            container_result.exit_code
+                            status, container_result.exit_code
                         ),
                     })
                 }
@@ -438,14 +402,10 @@ pub async fn execute_tool(
                 .get("tag")
                 .map(|s| s.as_str())
                 .unwrap_or("engine-builder-test");
-                
-            let result = stages::container::run_test_container(
-                problem,
-                tag,
-                &config.container,
-            )
-            .await;
-            
+
+            let result =
+                stages::container::run_test_container(problem, tag, &config.container).await;
+
             match result {
                 Ok(container_result) => {
                     let status = if container_result.success {
@@ -453,13 +413,12 @@ pub async fn execute_tool(
                     } else {
                         "FAILED"
                     };
-                    
+
                     Ok(ToolResult {
                         success: container_result.success,
                         output: format!(
                             "Test container completed with status: {} (exit code: {})",
-                            status,
-                            container_result.exit_code
+                            status, container_result.exit_code
                         ),
                     })
                 }
@@ -474,25 +433,20 @@ pub async fn execute_tool(
                 .get("tag")
                 .map(|s| s.as_str())
                 .unwrap_or("engine-builder-test");
-                
+
             let parallel = params
                 .get("parallel")
                 .map(|s| s.to_lowercase() == "true")
                 .unwrap_or(false);
-                
+
             // Clone container config and override parallel flag if specified
             let mut container_config = config.container.clone();
             if parallel {
                 container_config.parallel = true;
             }
-            
-            let result = stages::container::run_containers(
-                problem,
-                tag,
-                &container_config,
-            )
-            .await;
-            
+
+            let result = stages::container::run_containers(problem, tag, &container_config).await;
+
             match result {
                 Ok((lint_result, test_result)) => {
                     let lint_status = if lint_result.success {
@@ -500,13 +454,13 @@ pub async fn execute_tool(
                     } else {
                         "FAILED"
                     };
-                    
+
                     let test_status = if test_result.success {
                         "SUCCESS"
                     } else {
                         "FAILED"
                     };
-                    
+
                     Ok(ToolResult {
                         success: lint_result.success && test_result.success,
                         output: format!(

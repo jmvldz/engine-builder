@@ -96,10 +96,12 @@ CMD ["python3", "app.py"]"#;
 #[test]
 fn test_dockerfile_error_user_prompt() {
     let problem_statement = "Create a Docker image for a Python web application";
-    let dockerfile_content = "FROM ubuntu:20.04\nRUN pip install flask\nCMD [\"python\", \"app.py\"]";
+    let dockerfile_content =
+        "FROM ubuntu:20.04\nRUN pip install flask\nCMD [\"python\", \"app.py\"]";
     let error_message = "The command '/bin/sh -c pip install flask' returned a non-zero code: 127";
 
-    let prompt = get_dockerfile_error_user_prompt(problem_statement, dockerfile_content, error_message);
+    let prompt =
+        get_dockerfile_error_user_prompt(problem_statement, dockerfile_content, error_message);
 
     assert!(prompt.contains(problem_statement));
     assert!(prompt.contains(dockerfile_content));

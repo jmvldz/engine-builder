@@ -1,6 +1,8 @@
-use engine_builder::models::ranking::{FileRanking, ProblemContext, RankedCodebaseFile, RelevantFileDataForPrompt};
-use std::collections::HashMap;
+use engine_builder::models::ranking::{
+    FileRanking, ProblemContext, RankedCodebaseFile, RelevantFileDataForPrompt,
+};
 use serde_json::json;
+use std::collections::HashMap;
 
 #[test]
 fn test_file_ranking_serialization() {
@@ -12,13 +14,13 @@ fn test_file_ranking_serialization() {
             "Cargo.toml".to_string(),
         ],
     };
-    
+
     // Serialize to JSON
     let serialized = serde_json::to_string(&ranking).unwrap();
-    
+
     // Deserialize back
     let deserialized: FileRanking = serde_json::from_str(&serialized).unwrap();
-    
+
     // Verify
     assert_eq!(deserialized.message, ranking.message);
     assert_eq!(deserialized.ranking.len(), 3);
@@ -33,7 +35,7 @@ fn test_ranked_codebase_file() {
         path: "src/main.rs".to_string(),
         tokens: 1024,
     };
-    
+
     assert_eq!(file.path, "src/main.rs");
     assert_eq!(file.tokens, 1024);
 }
@@ -45,15 +47,18 @@ fn test_relevant_file_data_for_prompt() {
         summary: "Configuration handling for the application".to_string(),
         token_count: 256,
     };
-    
+
     assert_eq!(file_data.path, "src/config.rs");
-    assert_eq!(file_data.summary, "Configuration handling for the application");
+    assert_eq!(
+        file_data.summary,
+        "Configuration handling for the application"
+    );
     assert_eq!(file_data.token_count, 256);
-    
+
     // Test serialization
     let serialized = serde_json::to_string(&file_data).unwrap();
     let deserialized: RelevantFileDataForPrompt = serde_json::from_str(&serialized).unwrap();
-    
+
     assert_eq!(deserialized.path, file_data.path);
     assert_eq!(deserialized.summary, file_data.summary);
     assert_eq!(deserialized.token_count, file_data.token_count);
@@ -66,12 +71,12 @@ fn test_problem_context() {
         message: "Ranking 1".to_string(),
         ranking: vec!["file1.rs".to_string(), "file2.rs".to_string()],
     };
-    
+
     let ranking2 = FileRanking {
         message: "Ranking 2".to_string(),
         ranking: vec!["file2.rs".to_string(), "file3.rs".to_string()],
     };
-    
+
     // Create ranked files
     let ranked_files = vec![
         RankedCodebaseFile {
@@ -87,39 +92,33 @@ fn test_problem_context() {
             tokens: 300,
         },
     ];
-    
+
     // Create usage data
     let mut usage1 = HashMap::new();
-    usage1.insert(
-        "prompt_tokens".to_string(),
-        json!(1000),
-    );
-    
+    usage1.insert("prompt_tokens".to_string(), json!(1000));
+
     let mut usage2 = HashMap::new();
-    usage2.insert(
-        "completion_tokens".to_string(),
-        json!(500),
-    );
-    
+    usage2.insert("completion_tokens".to_string(), json!(500));
+
     // Create problem context
     let context = ProblemContext {
         model_rankings: vec![ranking1, ranking2],
         ranked_files: ranked_files,
         prompt_caching_usages: vec![usage1, usage2],
     };
-    
+
     // Test serialization
     let serialized = serde_json::to_string(&context).unwrap();
     let deserialized: ProblemContext = serde_json::from_str(&serialized).unwrap();
-    
+
     // Verify
     assert_eq!(deserialized.model_rankings.len(), 2);
     assert_eq!(deserialized.model_rankings[0].message, "Ranking 1");
     assert_eq!(deserialized.model_rankings[1].message, "Ranking 2");
-    
+
     assert_eq!(deserialized.ranked_files.len(), 3);
     assert_eq!(deserialized.ranked_files[0].path, "file1.rs");
     assert_eq!(deserialized.ranked_files[0].tokens, 100);
-    
+
     assert_eq!(deserialized.prompt_caching_usages.len(), 2);
 }

@@ -46,7 +46,7 @@ impl OverviewData {
     pub fn new(problem_id: &str, problem_statement: &str) -> Self {
         let mut metadata = HashMap::new();
         metadata.insert("created_at".to_string(), chrono::Utc::now().to_rfc3339());
-        
+
         Self {
             problem_id: problem_id.to_string(),
             problem_statement: problem_statement.to_string(),
@@ -70,13 +70,13 @@ impl OverviewData {
         md.push_str(&format!("# Project Overview for {}\n\n", self.problem_id));
         md.push_str("## Problem Statement\n\n");
         md.push_str(&format!("{}\n\n", self.problem_statement));
-        
+
         // Add file selection reasoning if available
         if let Some(reasoning) = &self.file_selection_reasoning {
             md.push_str("## File Selection Strategy\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         // Add relevance reasoning if available
         if !self.relevance_reasoning.is_empty() {
             md.push_str("## File Relevance Analysis\n\n");
@@ -85,77 +85,83 @@ impl OverviewData {
                 md.push_str(&format!("{}\n\n", reasoning));
             }
         }
-        
+
         // Add ranking reasoning if available
         if let Some(reasoning) = &self.ranking_reasoning {
             md.push_str("## File Ranking Strategy\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         // Add script generation reasoning if available
         md.push_str("## Scripts Generation\n\n");
-        
+
         if let Some(reasoning) = &self.setup_script_reasoning {
             md.push_str("### Setup Script\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         if let Some(reasoning) = &self.lint_script_reasoning {
             md.push_str("### Lint Script\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         if let Some(reasoning) = &self.test_script_reasoning {
             md.push_str("### Test Script\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         if let Some(reasoning) = &self.single_test_script_reasoning {
             md.push_str("### Single Test Script\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         // Add Dockerfile reasoning if available
         if let Some(reasoning) = &self.dockerfile_reasoning {
             md.push_str("## Dockerfile Generation\n\n");
             md.push_str(&format!("{}\n\n", reasoning));
         }
-        
+
         // Add Dockerfile error reasoning if available
         if !self.dockerfile_error_reasoning.is_empty() {
             md.push_str("## Dockerfile Error Fixes\n\n");
-            
+
             // Create a sorted vector of attempts to ensure they are in order
-            let mut attempts: Vec<(&String, &String)> = self.dockerfile_error_reasoning.iter().collect();
+            let mut attempts: Vec<(&String, &String)> =
+                self.dockerfile_error_reasoning.iter().collect();
             attempts.sort_by(|a, b| {
-                a.0.parse::<usize>().unwrap_or(0).cmp(&b.0.parse::<usize>().unwrap_or(0))
+                a.0.parse::<usize>()
+                    .unwrap_or(0)
+                    .cmp(&b.0.parse::<usize>().unwrap_or(0))
             });
-            
+
             for (attempt, reasoning) in attempts {
                 md.push_str(&format!("### Attempt {}\n\n", attempt));
                 md.push_str(&format!("{}\n\n", reasoning));
             }
         }
-        
+
         md
     }
-    
+
     /// Generate a summarized markdown overview document using an LLM
-    pub async fn to_summarized_markdown(&self, config: &crate::config::Config) -> anyhow::Result<String> {
-        use anyhow::Context;
+    pub async fn to_summarized_markdown(
+        &self,
+        config: &crate::config::Config,
+    ) -> anyhow::Result<String> {
         use crate::llm::client::create_client;
-        
+        use anyhow::Context;
+
         // Create LLM config for summary generation
         let llm_config = config.to_llm_config(&None);
-        
+
         // Create LLM client
         let client = create_client(&llm_config)
             .await
             .context("Failed to create LLM client for overview summarization")?;
-            
+
         // Generate the detailed version first
         let detailed_md = self.to_markdown();
-        
+
         // Create a prompt for the LLM to summarize the detailed overview
         let summary_prompt = format!(
             "You are an expert software engineer tasked with summarizing detailed reasoning about a project build process. \
@@ -178,17 +184,17 @@ impl OverviewData {
             Format your response as a complete Markdown document.",
             detailed_md
         );
-        
+
         // Send the request to the LLM
         let llm_response = client
             .completion(
                 &summary_prompt,
                 4096,
-                0.2  // Use a moderate temperature for summarization
+                0.2, // Use a moderate temperature for summarization
             )
             .await
             .context("Failed to get overview summary from LLM")?;
-            
+
         Ok(llm_response.content)
     }
 }

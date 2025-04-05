@@ -61,7 +61,8 @@ fn test_extract_json_with_formatting() {
 #[test]
 fn test_extract_file_paths_when_json_parse_fails() {
     // This version includes a dummy array that will fail to parse as valid JSON
-    let text = r#"I recommend these files [dummy array]: "src/main.rs", "src/lib.rs", and "Cargo.toml""#;
+    let text =
+        r#"I recommend these files [dummy array]: "src/main.rs", "src/lib.rs", and "Cargo.toml""#;
 
     let result = extract_last_json(text).unwrap();
     assert_eq!(result.len(), 3);
@@ -73,17 +74,23 @@ fn test_extract_file_paths_when_json_parse_fails() {
 #[test]
 fn test_no_json_array_found() {
     let text = "This text doesn't contain any JSON arrays or file paths";
-    
+
     let result = extract_last_json(text);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("No JSON array found"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("No JSON array found"));
 }
 
 #[test]
 fn test_invalid_json_no_file_paths() {
     let text = r#"This has invalid JSON: [not valid json] and no file paths"#;
-    
+
     let result = extract_last_json(text);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Could not extract a valid JSON array"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Could not extract a valid JSON array"));
 }

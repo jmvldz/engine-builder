@@ -5,10 +5,10 @@ use crossterm::{
     ExecutableCommand,
 };
 use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap, Clear},
-    layout::{Layout, Constraint, Direction, Rect},
-    style::{Style, Color},
+    style::{Color, Style},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::{io, time::Duration};
 use tokio::sync::mpsc;
@@ -57,7 +57,7 @@ impl ChatApp {
                         KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             self.running = false;
                         }
-                        
+
                         // Show/hide help on F1 or Ctrl+H
                         KeyCode::F(1) => {
                             self.show_help = !self.show_help;
@@ -65,7 +65,7 @@ impl ChatApp {
                         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             self.show_help = !self.show_help;
                         }
-                        
+
                         // Send message on Enter (if not empty)
                         KeyCode::Enter if key.modifiers.is_empty() => {
                             if !self.input.is_empty() {
@@ -79,23 +79,26 @@ impl ChatApp {
                                         // Add error message to local history
                                         self.messages.push(ChatMessage {
                                             role: "system".to_string(),
-                                            content: format!("Error: Failed to send message: {}", e),
+                                            content: format!(
+                                                "Error: Failed to send message: {}",
+                                                e
+                                            ),
                                         });
                                     }
-                                    
+
                                     // Add user message to local history
                                     self.messages.push(ChatMessage {
                                         role: "user".to_string(),
                                         content: input_text,
                                     });
-                                    
+
                                     // Clear input
                                     self.input.clear();
                                     self.cursor_position = 0;
                                 }
                             }
                         }
-                        
+
                         // Handle cursor movement
                         KeyCode::Left => {
                             self.move_cursor_left();
@@ -109,7 +112,7 @@ impl ChatApp {
                         KeyCode::End => {
                             self.cursor_position = self.input.len();
                         }
-                        
+
                         // Handle text modification
                         KeyCode::Backspace => {
                             self.delete_char();
@@ -127,21 +130,21 @@ impl ChatApp {
         }
         Ok(())
     }
-    
+
     /// Move cursor left
     fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
             self.cursor_position -= 1;
         }
     }
-    
+
     /// Move cursor right
     fn move_cursor_right(&mut self) {
         if self.cursor_position < self.input.len() {
             self.cursor_position += 1;
         }
     }
-    
+
     /// Delete character at cursor
     fn delete_char(&mut self) {
         if self.cursor_position > 0 {
@@ -149,14 +152,14 @@ impl ChatApp {
             self.input.remove(self.cursor_position);
         }
     }
-    
+
     /// Delete character after cursor
     fn delete_char_forward(&mut self) {
         if self.cursor_position < self.input.len() {
             self.input.remove(self.cursor_position);
         }
     }
-    
+
     /// Insert character at cursor
     fn insert_char(&mut self, c: char) {
         self.input.insert(self.cursor_position, c);
@@ -168,24 +171,21 @@ impl ChatApp {
         // Create layout
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(5),
-                Constraint::Length(3),
-            ])
+            .constraints([Constraint::Min(5), Constraint::Length(3)])
             .split(frame.size());
-        
+
         // Draw chat history
         self.render_messages(frame, chunks[0]);
-        
+
         // Draw input area
         self.render_input(frame, chunks[1]);
-        
+
         // Draw help popup if requested
         if self.show_help {
             self.render_help(frame);
         }
     }
-    
+
     /// Render input area
     fn render_input(&mut self, frame: &mut Frame, area: Rect) {
         // Create a block for input
@@ -193,58 +193,61 @@ impl ChatApp {
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Input");
-        
+
         let inner_area = input_block.inner(area);
         frame.render_widget(input_block, area);
-        
+
         // Create input text with cursor
         let input_text = self.input.clone();
-        
+
         // Calculate visible portion of input
         let scroll_offset = if self.cursor_position >= inner_area.width as usize {
             self.cursor_position - inner_area.width as usize + 1
         } else {
             0
         };
-        
+
         let visible_text = if input_text.len() > scroll_offset {
             &input_text[scroll_offset..]
         } else {
             ""
         };
-        
-        let visible_chars = visible_text.chars().take(inner_area.width as usize).collect::<String>();
-        
+
+        let visible_chars = visible_text
+            .chars()
+            .take(inner_area.width as usize)
+            .collect::<String>();
+
         // Create text widget
         let input_paragraph = Paragraph::new(visible_chars);
         frame.render_widget(input_paragraph, inner_area);
-        
+
         // Draw cursor at current position
         let cursor_x = if self.cursor_position >= scroll_offset {
             (self.cursor_position - scroll_offset) as u16
         } else {
             0
         };
-        
+
         frame.set_cursor(
             inner_area.x + cursor_x.min(inner_area.width - 1),
-            inner_area.y
+            inner_area.y,
         );
     }
-    
+
     /// Render chat message history
     fn render_messages(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Chat History");
-        
+
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
-        
+
         // Format all messages as a single text
         let mut formatted_text = String::new();
-        
+
         for message in &self.messages {
             let header = match message.role.as_str() {
                 "user" => "\n[You]: ",
@@ -252,50 +255,54 @@ impl ChatApp {
                 "system" => "\n[System]: ",
                 _ => "\n[Unknown]: ",
             };
-            
+
             formatted_text.push_str(header);
-            
+
             // Handle tool execution messages specially to make them stand out
-            let content = if message.role == "assistant" && message.content.starts_with("I'll run the '") {
-                // Add a visual indicator for tool execution
-                format!("⚙️  RUNNING TOOL: {}", &message.content["I'll run the '".len()..])
-            } else if message.role == "assistant" && message.content.starts_with("Result:") {
-                // Add a visual indicator for tool results
-                format!("✅ {}", &message.content)
-            } else {
-                message.content.clone()
-            };
-            
+            let content =
+                if message.role == "assistant" && message.content.starts_with("I'll run the '") {
+                    // Add a visual indicator for tool execution
+                    format!(
+                        "⚙️  RUNNING TOOL: {}",
+                        &message.content["I'll run the '".len()..]
+                    )
+                } else if message.role == "assistant" && message.content.starts_with("Result:") {
+                    // Add a visual indicator for tool results
+                    format!("✅ {}", &message.content)
+                } else {
+                    message.content.clone()
+                };
+
             formatted_text.push_str(&content);
             formatted_text.push_str("\n");
         }
-        
+
         // Create a paragraph from the formatted text
         let paragraph = Paragraph::new(formatted_text)
             .style(Style::default())
             .wrap(Wrap { trim: false })
             .scroll((0, 0));
-        
+
         frame.render_widget(paragraph, inner_area);
     }
-    
+
     /// Render help popup
     fn render_help(&self, frame: &mut Frame) {
         let area = centered_rect(60, 60, frame.size());
-        
+
         // Draw a clear background
         frame.render_widget(Clear, area);
-        
+
         // Draw a block around the help text
         let block = Block::default()
             .title("Help")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .style(Style::default().bg(Color::DarkGray));
-        
+
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
-        
+
         // Create the help text
         let help_text = vec![
             "Engine Builder Chat Interface",
@@ -312,12 +319,12 @@ impl ChatApp {
             "",
             "Tools can be used with: TOOL: tool_name(param=value)",
         ];
-        
+
         let paragraph = Paragraph::new(help_text.join("\n"))
             .style(Style::default().fg(Color::White))
             .block(Block::default())
             .wrap(Wrap { trim: false });
-        
+
         frame.render_widget(paragraph, inner_area);
     }
 }
@@ -344,43 +351,40 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Run the chat UI
-pub async fn run_chat_ui(
-    rx: mpsc::Receiver<ChatMessage>,
-    tx: mpsc::Sender<String>,
-) -> Result<()> {
+pub async fn run_chat_ui(rx: mpsc::Receiver<ChatMessage>, tx: mpsc::Sender<String>) -> Result<()> {
     // Set up terminal
     let mut stdout = io::stdout();
     terminal::enable_raw_mode()?;
     stdout.execute(EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    
+
     // Create app state
     let mut app = ChatApp::new(tx);
-    
+
     // We don't need an internal channel anymore, removed
-    
+
     // Create a channel for collecting messages from background tasks
     let mut user_input_rx = rx;
-        
+
     // Main UI loop
     while app.running {
         // Non-blocking check for new messages
         if let Ok(message) = user_input_rx.try_recv() {
             app.messages.push(message);
         }
-        
+
         // Draw UI
         terminal.draw(|f| app.render(f))?;
-        
+
         // Handle user input and events
         app.handle_events().await?;
     }
-    
+
     // Restore terminal
     terminal::disable_raw_mode()?;
     terminal.backend_mut().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-    
+
     Ok(())
 }

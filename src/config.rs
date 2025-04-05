@@ -82,10 +82,18 @@ pub struct RelevanceConfig {
     pub max_file_tokens: usize,
 }
 
-fn default_max_workers() -> usize { 8 }
-fn default_max_tokens() -> usize { 4096 }
-fn default_relevance_timeout() -> f64 { 1800.0 }
-fn default_max_file_tokens() -> usize { 100_000 }
+fn default_max_workers() -> usize {
+    8
+}
+fn default_max_tokens() -> usize {
+    4096
+}
+fn default_relevance_timeout() -> f64 {
+    1800.0
+}
+fn default_max_file_tokens() -> usize {
+    100_000
+}
 
 impl Default for RelevanceConfig {
     fn default() -> Self {
@@ -110,8 +118,12 @@ pub struct RankingConfig {
     #[serde(default = "default_temperature")]
     pub temperature: f64,
 }
-fn default_ranking_max_workers() -> usize { 4 }
-fn default_temperature() -> f64 { 0.0 }
+fn default_ranking_max_workers() -> usize {
+    4
+}
+fn default_temperature() -> f64 {
+    0.0
+}
 
 impl Default for RankingConfig {
     fn default() -> Self {
@@ -136,7 +148,9 @@ pub struct DockerfileConfig {
     pub max_retries: usize,
 }
 
-fn default_max_retries() -> usize { 3 }
+fn default_max_retries() -> usize {
+    3
+}
 
 impl Default for DockerfileConfig {
     fn default() -> Self {
@@ -184,7 +198,9 @@ pub struct ChatConfig {
     pub temperature: f64,
 }
 
-fn default_chat_temperature() -> f64 { 0.7 }
+fn default_chat_temperature() -> f64 {
+    0.7
+}
 
 fn default_chat_model() -> Option<String> {
     Some("claude-3-7-sonnet-20250219".to_string())
@@ -204,17 +220,17 @@ impl Default for ChatConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ContainerConfig {
-    pub timeout: u64,  // Timeout for container execution in seconds
+    pub timeout: u64,   // Timeout for container execution in seconds
     pub parallel: bool, // Whether to run lint and test containers in parallel
-    pub remove: bool,  // Whether to remove containers after execution
+    pub remove: bool,   // Whether to remove containers after execution
 }
 
 impl Default for ContainerConfig {
     fn default() -> Self {
         Self {
-            timeout: 300,      // 5 minutes default timeout
-            parallel: false,   // Serial execution by default
-            remove: true,      // Remove containers by default
+            timeout: 300,    // 5 minutes default timeout
+            parallel: false, // Serial execution by default
+            remove: true,    // Remove containers by default
         }
     }
 }
@@ -261,36 +277,46 @@ impl Default for LangfuseConfig {
 
 impl Config {
     pub fn from_file(path: Option<&str>) -> Result<Self> {
-        use log::{info, debug};
-        
+        use log::{debug, info};
+
         // If a specific path is provided via command line, use that
         if let Some(path_str) = path {
-            debug!("Attempting to load config from command-line specified path: {}", path_str);
-            let file = File::open(path_str).context(format!("Failed to open config file: {}", path_str))?;
+            debug!(
+                "Attempting to load config from command-line specified path: {}",
+                path_str
+            );
+            let file = File::open(path_str)
+                .context(format!("Failed to open config file: {}", path_str))?;
             let reader = BufReader::new(file);
             let config = serde_json::from_reader(reader).context("Failed to parse config file")?;
             info!("Loaded configuration from: {}", path_str);
             return Ok(config);
         }
-        
+
         // Try to find config in home directory first (.engines.config.json)
         if let Ok(home_dir) = std::env::var("HOME") {
             let home_config_path = format!("{}/.engines.config.json", home_dir);
-            debug!("Checking for config in home directory: {}", home_config_path);
+            debug!(
+                "Checking for config in home directory: {}",
+                home_config_path
+            );
             if let Ok(file) = File::open(&home_config_path) {
                 let reader = BufReader::new(file);
                 match serde_json::from_reader(reader) {
                     Ok(config) => {
-                        info!("Loaded configuration from home directory: {}", home_config_path);
+                        info!(
+                            "Loaded configuration from home directory: {}",
+                            home_config_path
+                        );
                         return Ok(config);
-                    },
-                    Err(e) => debug!("Failed to parse home directory config: {}", e)
+                    }
+                    Err(e) => debug!("Failed to parse home directory config: {}", e),
                 }
             } else {
                 debug!("No config found in home directory");
             }
         }
-        
+
         // Try to find config in current directory (config.json)
         debug!("Checking for config in current directory: config.json");
         if let Ok(file) = File::open("config.json") {
@@ -299,13 +325,13 @@ impl Config {
                 Ok(config) => {
                     info!("Loaded configuration from current directory: config.json");
                     return Ok(config);
-                },
-                Err(e) => debug!("Failed to parse current directory config: {}", e)
+                }
+                Err(e) => debug!("Failed to parse current directory config: {}", e),
             }
         } else {
             debug!("No config found in current directory");
         }
-        
+
         // If no config file found, return an error
         Err(anyhow::anyhow!("No config file found. Expected either ~/.engines.config.json, ./config.json, or config path provided via -c flag"))
     }
@@ -330,7 +356,7 @@ impl Config {
             output_path: Some(".engines".to_string()),
         }
     }
-    
+
     /// Get the effective model name for a stage
     pub fn get_model_for_stage(&self, stage_model: &Option<String>) -> String {
         match stage_model {
@@ -338,36 +364,38 @@ impl Config {
             None => self.model.clone(),
         }
     }
-    
+
     /// Convert to the LLMConfig format needed by LLM clients
     pub fn to_llm_config(&self, stage_model: &Option<String>) -> LLMConfig {
         let model = self.get_model_for_stage(stage_model);
-        
+
         LLMConfig {
             model_type: "anthropic".to_string(),
             model,
             api_key: self.anthropic_api_key.clone(),
             base_url: None,
-            timeout: 60, // Fixed default timeout
+            timeout: 60,    // Fixed default timeout
             max_retries: 3, // Fixed default max retries
         }
     }
-    
+
     /// Get the output directory path
     pub fn get_output_dir(&self) -> String {
-        self.output_path.clone().unwrap_or_else(|| ".engines".to_string())
+        self.output_path
+            .clone()
+            .unwrap_or_else(|| ".engines".to_string())
     }
-    
+
     /// Get the trajectory store directory (shared across all problems)
     pub fn get_trajectory_dir(&self, _problem_id: &str) -> String {
         self.get_output_dir()
     }
-    
+
     /// Get the Dockerfile path for a given problem
     pub fn get_dockerfile_path(&self, _problem_id: &str) -> String {
         format!("{}/Dockerfile", self.get_output_dir())
     }
-    
+
     /// Get the scripts directory for a given problem
     pub fn get_scripts_dir(&self, _problem_id: &str) -> String {
         self.get_output_dir()

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use log::{debug, warn};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
@@ -88,11 +88,11 @@ impl LangfuseClient {
         let secret_key = secret_key
             .or_else(|| env::var("LANGFUSE_SECRET_KEY").ok())
             .unwrap_or_default();
-        
+
         let public_key = public_key
             .or_else(|| env::var("LANGFUSE_PUBLIC_KEY").ok())
             .unwrap_or_default();
-        
+
         let base_url = base_url
             .or_else(|| env::var("LANGFUSE_HOST").ok())
             .unwrap_or_else(|| DEFAULT_API_URL.to_string());
@@ -104,10 +104,10 @@ impl LangfuseClient {
         // Check if required keys are available and explicitly enabled
         let has_credentials = !secret_key.is_empty() && !public_key.is_empty();
         let is_enabled = enabled.unwrap_or(has_credentials);
-        
+
         // Only enable if both conditions are met
         let enabled = is_enabled && has_credentials;
-        
+
         if !enabled {
             if is_enabled && !has_credentials {
                 warn!("Langfuse tracing is enabled but missing credentials. Set secret_key and public_key in config.json or as environment variables.");
@@ -181,10 +181,16 @@ impl LangfuseClient {
         metadata: Option<serde_json::Value>,
     ) -> Result<String> {
         if !self.enabled {
-            return Ok(self.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()));
+            return Ok(self
+                .trace_id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string()));
         }
 
-        let trace_id = self.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+        let trace_id = self
+            .trace_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let event_id = Uuid::new_v4().to_string();
         let timestamp = Self::current_timestamp();
 
@@ -209,7 +215,8 @@ impl LangfuseClient {
 
         let url = format!("{}{}/ingestion", self.base_url, API_PATH);
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .basic_auth(&self.public_key, Some(&self.secret_key))
             .header(header::CONTENT_TYPE, "application/json")
@@ -259,10 +266,10 @@ impl LangfuseClient {
         let observation_id = Uuid::new_v4().to_string();
         let event_id = Uuid::new_v4().to_string();
         let now = Self::timestamp_ms();
-        
+
         let start_time_ms = start_time.unwrap_or(now - 1000); // Default to 1 second ago
         let end_time_ms = end_time.unwrap_or(now);
-        
+
         let start_time_iso = Self::format_timestamp(start_time_ms);
         let end_time_iso = Self::format_timestamp(end_time_ms);
 
@@ -272,7 +279,7 @@ impl LangfuseClient {
             "completion_tokens": token_usage.completion_tokens,
             "total_tokens": token_usage.total_tokens
         });
-        
+
         // Build cost details
         let cost_details = if let Some(cost) = token_cost {
             json!({
@@ -283,13 +290,13 @@ impl LangfuseClient {
         } else {
             json!(null)
         };
-        
+
         // Parse prompt and completion as JSON if they are valid JSON strings
         let input_value = match serde_json::from_str::<serde_json::Value>(prompt) {
             Ok(json_value) => json_value,
             Err(_) => json!(prompt),
         };
-        
+
         let output_value = match serde_json::from_str::<serde_json::Value>(completion) {
             Ok(json_value) => json_value,
             Err(_) => json!(completion),
@@ -325,7 +332,8 @@ impl LangfuseClient {
 
         let url = format!("{}{}/ingestion", self.base_url, API_PATH);
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .basic_auth(&self.public_key, Some(&self.secret_key))
             .header(header::CONTENT_TYPE, "application/json")
@@ -394,7 +402,8 @@ impl LangfuseClient {
 
         let url = format!("{}{}/ingestion", self.base_url, API_PATH);
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .basic_auth(&self.public_key, Some(&self.secret_key))
             .header(header::CONTENT_TYPE, "application/json")
@@ -448,14 +457,9 @@ impl LangfuseTracer {
         trace_id: Option<&str>,
     ) -> Result<Self> {
         let client = LangfuseClient::with_credentials(
-            secret_key,
-            public_key,
-            project_id,
-            base_url,
-            enabled,
-            trace_id,
+            secret_key, public_key, project_id, base_url, enabled, trace_id,
         )?;
-        
+
         Ok(Self {
             client: Arc::new(client),
         })
@@ -481,14 +485,9 @@ pub fn init_langfuse(
     trace_id: Option<&str>,
 ) -> Result<()> {
     let tracer = LangfuseTracer::with_credentials(
-        secret_key,
-        public_key,
-        project_id,
-        base_url,
-        enabled,
-        trace_id,
+        secret_key, public_key, project_id, base_url, enabled, trace_id,
     )?;
-    
+
     // Set the global tracer
     let _ = LANGFUSE_TRACER.set(tracer);
     Ok(())

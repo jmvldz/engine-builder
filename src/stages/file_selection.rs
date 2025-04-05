@@ -5,7 +5,7 @@ use serde_json;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{Config, CodebaseConfig, RelevanceConfig};
+use crate::config::{CodebaseConfig, Config, RelevanceConfig};
 use crate::llm::client::create_client;
 use crate::llm::prompts::get_codebase_tree_user_prompt;
 use crate::models::exclusion::ExclusionConfig;
@@ -95,7 +95,7 @@ pub async fn run_file_selection(
     trajectory_dir: &str,
 ) -> Result<(FilePatternSelection, crate::llm::client::TokenUsage)> {
     info!("Starting file selection process");
-    
+
     // Get the LLM config which uses the top-level model as fallback
     let llm_config = config.to_llm_config(&relevance_config.model);
 
@@ -142,10 +142,9 @@ pub async fn run_file_selection(
     let tree_output = configured_problem.generate_tree();
 
     // Use the trajectory dir provided by the caller (via config from main)
-    
+
     // Save the tree output to a file
-    let tree_path = Path::new(&trajectory_dir)
-        .join("codebase_tree.txt");
+    let tree_path = Path::new(&trajectory_dir).join("codebase_tree.txt");
 
     // Create the directory if it doesn't exist
     if let Some(parent) = tree_path.parent() {
@@ -166,8 +165,7 @@ pub async fn run_file_selection(
     let tree_prompt = get_codebase_tree_user_prompt(&configured_problem, &tree_output);
 
     // Save the prompt to a file
-    let prompt_path = Path::new(&trajectory_dir)
-        .join("codebase_tree_prompt.txt");
+    let prompt_path = Path::new(&trajectory_dir).join("codebase_tree_prompt.txt");
 
     // Write the prompt to a file
     fs::write(&prompt_path, &tree_prompt)
@@ -196,8 +194,7 @@ pub async fn run_file_selection(
         .context("Failed to get file selection from LLM")?;
 
     // Save the LLM response to a file
-    let response_path = Path::new(trajectory_dir)
-        .join("codebase_tree_response.txt");
+    let response_path = Path::new(trajectory_dir).join("codebase_tree_response.txt");
 
     // Write the LLM response to a file
     fs::write(&response_path, &llm_response.content).context(format!(
@@ -259,21 +256,26 @@ pub async fn process_file_selection(
     debug!("Starting file selection process");
 
     // Create a trajectory store for this problem (for future use)
-    let _trajectory_store =
-        TrajectoryStore::new(trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let _trajectory_store = TrajectoryStore::new(trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Run file selection and get token usage
-    let (file_patterns, token_usage) =
-        run_file_selection(config, &config.relevance, codebase_config, &problem, trajectory_dir).await?;
+    let (file_patterns, token_usage) = run_file_selection(
+        config,
+        &config.relevance,
+        codebase_config,
+        &problem,
+        trajectory_dir,
+    )
+    .await?;
 
     // Create the LLM client to access pricing information
     let client = create_client(&config.to_llm_config(&config.relevance.model))
         .await
         .context("Failed to create LLM client")?;
-    
+
     let cost = client.calculate_cost(&token_usage);
 
     // Output cost information

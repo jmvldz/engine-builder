@@ -186,8 +186,8 @@ async fn assess_file_relevance(
     // Send the request to the LLM with tracing
     let llm_response = client
         .completion_with_tracing(
-            &prompt, 
-            config.relevance.max_tokens, 
+            &prompt,
+            config.relevance.max_tokens,
             0.0,
             trace_id,
             Some(&format!("relevance_{}", file_path.replace("/", "_"))),
@@ -220,10 +220,10 @@ pub async fn process_codebase(
     problem: SWEBenchProblem,
 ) -> Result<()> {
     info!("Starting relevance assessment");
-    
+
     // Create LLM config using the config's to_llm_config method
     let llm_config = config.to_llm_config(&config.relevance.model);
-    
+
     // Set up Langfuse trace for the entire relevance stage
     let trace_metadata = serde_json::json!({
         "problem_id": problem.id,
@@ -233,21 +233,24 @@ pub async fn process_codebase(
         "model_type": "anthropic",
         "model": config.get_model_for_stage(&config.relevance.model),
     });
-    
+
     // Create a new trace
     let trace_id = match crate::llm::langfuse::get_tracer() {
         Ok(tracer) => {
-            match tracer.create_trace(&format!("relevance_{}", problem.id), Some(trace_metadata)).await {
+            match tracer
+                .create_trace(&format!("relevance_{}", problem.id), Some(trace_metadata))
+                .await
+            {
                 Ok(id) => {
                     debug!("Created Langfuse trace for relevance: {}", id);
                     Some(id)
-                },
+                }
                 Err(e) => {
                     warn!("Failed to create Langfuse trace: {}", e);
                     None
-                },
+                }
             }
-        },
+        }
         Err(_) => None,
     };
 
@@ -289,19 +292,20 @@ pub async fn process_codebase(
 
     // Create a trajectory store for this problem
     let trajectory_dir = config.get_trajectory_dir(&configured_problem.id);
-    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &configured_problem)
-        .context(format!(
+    let trajectory_store =
+        TrajectoryStore::new(&trajectory_dir, &configured_problem).context(format!(
             "Failed to create trajectory store for problem: {}",
             configured_problem.id
         ))?;
 
     // Load file patterns from previously generated response file
-    let response_path = Path::new(&trajectory_dir)
-        .join("codebase_tree_response.txt");
+    let response_path = Path::new(&trajectory_dir).join("codebase_tree_response.txt");
 
     // Read existing file selection response
-    let response_content = fs::read_to_string(&response_path)
-        .context(format!("Failed to read codebase tree response from {:?}. Run file_selection first.", response_path))?;
+    let response_content = fs::read_to_string(&response_path).context(format!(
+        "Failed to read codebase tree response from {:?}. Run file_selection first.",
+        response_path
+    ))?;
 
     // Parse file patterns from the existing response
     let file_patterns = parse_file_patterns(&response_content)
@@ -311,11 +315,7 @@ pub async fn process_codebase(
     let mut total_usage = crate::llm::client::TokenUsage::default();
 
     // Save the file patterns for future reference
-    save_file_patterns(
-        &trajectory_dir,
-        &configured_problem,
-        &file_patterns,
-    )?;
+    save_file_patterns(&trajectory_dir, &configured_problem, &file_patterns)?;
 
     // Get all file paths for this problem
     let all_files = configured_problem.all_file_paths();
@@ -356,7 +356,7 @@ pub async fn process_codebase(
     // Create a fixed-size buffer of futures to limit concurrency
     // Clone trace_id for use in async blocks
     let trace_id_for_async = trace_id.clone();
-    
+
     let futures =
         futures::stream::iter(file_contents.into_iter().map(|(file_path, file_content)| {
             let file_path_clone = file_path.clone();

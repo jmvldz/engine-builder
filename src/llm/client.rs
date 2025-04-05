@@ -83,7 +83,7 @@ pub trait LLMClient: Send + Sync {
         max_tokens: usize,
         temperature: f64,
     ) -> Result<LLMResponse>;
-    
+
     /// Generate a completion with Langfuse tracing
     async fn completion_with_tracing(
         &self,
@@ -96,16 +96,16 @@ pub trait LLMClient: Send + Sync {
     ) -> Result<LLMResponse> {
         use crate::llm::langfuse;
         use std::time::{Instant, SystemTime, UNIX_EPOCH};
-        
+
         // Get the current timestamp in milliseconds
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-            
+
         // Record start time for duration measurement - currently calculated using SystemTime instead
         let _instant_start = Instant::now();
-        
+
         // Create a new trace if one wasn't provided
         let (_owned_trace_id, trace_id_str) = match trace_id {
             Some(id) => (None, id.to_string()),
@@ -113,57 +113,59 @@ pub trait LLMClient: Send + Sync {
                 // Create a new trace for this completion
                 let trace_name = generation_name.unwrap_or("llm_completion");
                 match langfuse::get_tracer() {
-                    Ok(tracer) => {
-                        match tracer.create_trace(trace_name, metadata.clone()).await {
-                            Ok(id) => {
-                                let id_str = id.clone();
-                                (Some(id), id_str)
-                            },
-                            Err(_) => (None, String::new()),
+                    Ok(tracer) => match tracer.create_trace(trace_name, metadata.clone()).await {
+                        Ok(id) => {
+                            let id_str = id.clone();
+                            (Some(id), id_str)
                         }
+                        Err(_) => (None, String::new()),
                     },
                     Err(_) => (None, String::new()),
                 }
             }
         };
-        
+
         // Call the regular completion method
         let result = self.completion(prompt, max_tokens, temperature).await;
-        
+
         // Get the end timestamp
         let end_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-            
+
         // Log to Langfuse if enabled and we have a valid trace ID
         if !trace_id_str.is_empty() {
             if let Ok(response) = &result {
                 if let Ok(tracer) = langfuse::get_tracer() {
                     let gen_name = generation_name.unwrap_or("llm_generation");
                     let cost = self.calculate_cost(&response.usage);
-                    
+
                     // Create JSON for prompt and completion
                     let input_json = serde_json::json!(prompt);
                     let output_json = serde_json::json!(response.content);
-                    
+
                     // Log the generation with full model name instead of just provider name
-                    let _ = tracer.log_generation(
-                        &trace_id_str,
-                        gen_name,
-                        self.model_name(),
-                        &serde_json::to_string(&input_json).unwrap_or_else(|_| prompt.to_string()),
-                        &serde_json::to_string(&output_json).unwrap_or_else(|_| response.content.clone()),
-                        &response.usage,
-                        Some(&cost),
-                        metadata,
-                        Some(start_time),
-                        Some(end_time),
-                    ).await;
+                    let _ = tracer
+                        .log_generation(
+                            &trace_id_str,
+                            gen_name,
+                            self.model_name(),
+                            &serde_json::to_string(&input_json)
+                                .unwrap_or_else(|_| prompt.to_string()),
+                            &serde_json::to_string(&output_json)
+                                .unwrap_or_else(|_| response.content.clone()),
+                            &response.usage,
+                            Some(&cost),
+                            metadata,
+                            Some(start_time),
+                            Some(end_time),
+                        )
+                        .await;
                 }
             }
         }
-        
+
         result
     }
 
@@ -227,7 +229,11 @@ async fn default_client_factory(config: &LLMConfig) -> Result<Box<dyn LLMClient>
 }
 
 // Type for an async client factory function
-type AsyncClientFactory = fn(&LLMConfig) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Arc<dyn LLMClient>>> + Send>>;
+type AsyncClientFactory = fn(
+    &LLMConfig,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Arc<dyn LLMClient>>> + Send>,
+>;
 
 // Global state for client factory
 static INIT: Once = Once::new();
@@ -247,31 +253,36 @@ pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
     unsafe {
         if let Some(factory) = ASYNC_CLIENT_FACTORY {
             let arc_client = factory(config).await?;
-            
+
             // Convert Arc<dyn LLMClient> to Box<dyn LLMClient>
             // This is a bit of a hack, but needed for compatibility with existing code
             struct ArcWrapper {
                 inner: Arc<dyn LLMClient>,
             }
-            
+
             #[async_trait]
             impl LLMClient for ArcWrapper {
                 fn name(&self) -> &str {
                     self.inner.name()
                 }
-                
+
                 fn model_name(&self) -> &str {
                     self.inner.model_name()
                 }
-                
+
                 fn get_token_prices(&self) -> (f64, f64) {
                     self.inner.get_token_prices()
                 }
-                
-                async fn completion(&self, prompt: &str, max_tokens: usize, temperature: f64) -> Result<LLMResponse> {
+
+                async fn completion(
+                    &self,
+                    prompt: &str,
+                    max_tokens: usize,
+                    temperature: f64,
+                ) -> Result<LLMResponse> {
                     self.inner.completion(prompt, max_tokens, temperature).await
                 }
-                
+
                 async fn completion_with_tracing(
                     &self,
                     prompt: &str,
@@ -281,29 +292,31 @@ pub async fn create_client(config: &LLMConfig) -> Result<Box<dyn LLMClient>> {
                     generation_name: Option<&str>,
                     metadata: Option<serde_json::Value>,
                 ) -> Result<LLMResponse> {
-                    self.inner.completion_with_tracing(
-                        prompt,
-                        max_tokens,
-                        temperature,
-                        trace_id,
-                        generation_name,
-                        metadata,
-                    ).await
+                    self.inner
+                        .completion_with_tracing(
+                            prompt,
+                            max_tokens,
+                            temperature,
+                            trace_id,
+                            generation_name,
+                            metadata,
+                        )
+                        .await
                 }
-                
+
                 async fn fetch_pricing_data(&self) -> Result<()> {
                     self.inner.fetch_pricing_data().await
                 }
-                
+
                 fn calculate_cost(&self, usage: &TokenUsage) -> TokenCost {
                     self.inner.calculate_cost(usage)
                 }
             }
-            
+
             return Ok(Box::new(ArcWrapper { inner: arc_client }));
         }
     }
-    
+
     // Otherwise use the default factory
     default_client_factory(config).await
 }
