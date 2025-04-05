@@ -15,7 +15,6 @@ use crate::utils::json_utils::extract_last_json;
 use crate::utils::token_counter::count_tokens;
 use crate::utils::trajectory_store::TrajectoryStore;
 
-
 /// Get relevant files for a problem
 fn get_relevant_files(
     trajectory_store: &TrajectoryStore,
@@ -59,8 +58,7 @@ fn get_relevant_files(
         // If no summary is provided, create one from the message
         let summary = decision.summary.unwrap_or_else(|| {
             // Use the message as a fallback summary if no summary is provided
-            "This file was marked as relevant to the issue."
-                .to_string()
+            "This file was marked as relevant to the issue.".to_string()
         });
 
         // Get the file content to count tokens, skip if file doesn't exist
@@ -99,11 +97,10 @@ async fn rank_problem_files(
     info!("Ranking files for problem: {}", problem.id);
 
     // Create a trajectory store for this problem
-    let trajectory_store =
-        TrajectoryStore::new(output_dir, problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let trajectory_store = TrajectoryStore::new(output_dir, problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Check if ranking already exists
     if trajectory_store.ranking_exists() {
@@ -153,7 +150,7 @@ async fn rank_problem_files(
 
     // Clone problem_id for use in async blocks
     let problem_id = problem.id.clone();
-    
+
     progress_bar.set_message("Running ranking");
 
     // Add tracing metadata
@@ -167,8 +164,8 @@ async fn rank_problem_files(
 
     let llm_result = client
         .completion_with_tracing(
-            &prompt, 
-            config.max_tokens, 
+            &prompt,
+            config.max_tokens,
             config.temperature,
             None, // Use auto-generated trace ID
             Some(&format!("ranking_{}", problem_id)),
@@ -176,9 +173,9 @@ async fn rank_problem_files(
         )
         .await
         .context("Failed to get ranking completion");
-        
+
     progress_bar.inc(1);
-    
+
     match llm_result {
         Ok(llm_response) => {
             // Add to the total token usage
@@ -306,23 +303,32 @@ pub async fn process_rankings(config: &Config, mut problem: SWEBenchProblem) -> 
 
     // Create a trajectory store for this problem to check if previous steps were run
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem)
-        .context(format!("Failed to create trajectory store for problem: {}", problem.id))?;
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Check if file selection step was run
     let file_patterns_path = trajectory_store.problem_dir().join("file_patterns.json");
     if !file_patterns_path.exists() {
         warn!("File patterns file not found at: {:?}", file_patterns_path);
         warn!("Make sure you have run the file_selection step first with: cargo run --release -- file_selection");
-        return Err(anyhow::anyhow!("File selection step not run. Run 'cargo run --release -- file_selection' first."));
+        return Err(anyhow::anyhow!(
+            "File selection step not run. Run 'cargo run --release -- file_selection' first."
+        ));
     }
 
     // Check if relevance step was run
     let relevance_path = trajectory_store.relevance_decisions_path();
     if !relevance_path.exists() {
-        warn!("Relevance decisions file not found at: {:?}", relevance_path);
+        warn!(
+            "Relevance decisions file not found at: {:?}",
+            relevance_path
+        );
         warn!("Make sure you have run the relevance step first with: cargo run --release -- relevance");
-        return Err(anyhow::anyhow!("Relevance step not run. Run 'cargo run --release -- relevance' first."));
+        return Err(anyhow::anyhow!(
+            "Relevance step not run. Run 'cargo run --release -- relevance' first."
+        ));
     }
 
     // Create LLM config using the config's to_llm_config method

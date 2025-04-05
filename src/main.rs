@@ -1,12 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
+use colored::Colorize;
 use engine_builder::config::Config;
 use engine_builder::llm::langfuse;
 use engine_builder::models::exclusion::ExclusionConfig;
 use engine_builder::models::problem::SWEBenchProblem;
 use engine_builder::stages::{container, dockerfile, file_selection, ranking, relevance};
 use log::{info, warn};
-use colored::Colorize;
 use std::env;
 use std::path::PathBuf;
 
@@ -14,7 +14,11 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Path to the config file. If not provided, will look for ~/.engines.config.json or ./config.json
-    #[arg(short = 'c', long, help = "Path to the config file. If not provided, will look for ~/.engines.config.json or ./config.json")]
+    #[arg(
+        short = 'c',
+        long,
+        help = "Path to the config file. If not provided, will look for ~/.engines.config.json or ./config.json"
+    )]
     config_path: Option<String>,
 
     /// Path to the codebase to analyze
@@ -72,7 +76,7 @@ enum Command {
         /// Tag name for the Docker image
         #[arg(short, long, default_value = "engine-builder-test")]
         tag: String,
-        
+
         /// Run in parallel mode (both containers at once)
         #[arg(short, long)]
         parallel: bool,
@@ -82,7 +86,7 @@ enum Command {
         /// Which LLM configuration to use (relevance, ranking, dockerfile, scripts)
         #[arg(short, long, default_value = "relevance")]
         config_type: String,
-        
+
         /// Temperature for LLM responses (0.0-1.0)
         #[arg(short, long)]
         temperature: Option<f64>,
@@ -126,10 +130,10 @@ async fn main() -> Result<()> {
     // Log level can be controlled by setting the RUST_LOG environment variable
     // e.g., RUST_LOG=info cargo run --release -- -c config.json pipeline
     // or RUST_LOG=debug for more detailed logs
-    
+
     // Use a custom logger setup based on the command
     let cli = Cli::parse();
-    
+
     // Skip file logging when running in test mode
     if cfg!(test) {
         // For tests, use standard logging without any file output
@@ -160,7 +164,7 @@ async fn main() -> Result<()> {
     };
 
     info!("Starting engine-builder. To adjust log level, set RUST_LOG=info, RUST_LOG=debug or RUST_LOG=trace");
-    
+
     // Use the already parsed CLI args
     let mut config = Config::from_file(cli.config_path.as_deref())?;
 
@@ -182,19 +186,19 @@ async fn main() -> Result<()> {
     } else {
         env::var("LANGFUSE_SECRET_KEY").unwrap_or_default()
     };
-    
+
     let langfuse_public_key = if !config.observability.langfuse.public_key.is_empty() {
         config.observability.langfuse.public_key.clone()
     } else {
         env::var("LANGFUSE_PUBLIC_KEY").unwrap_or_default()
     };
-    
+
     let langfuse_project_id = if !config.observability.langfuse.project_id.is_empty() {
         config.observability.langfuse.project_id.clone()
     } else {
         env::var("LANGFUSE_PROJECT_ID").unwrap_or_else(|_| "engines-builder".to_string())
     };
-    
+
     let langfuse_host = if !config.observability.langfuse.host.is_empty() {
         config.observability.langfuse.host.clone()
     } else {
@@ -211,10 +215,16 @@ async fn main() -> Result<()> {
         config.observability.langfuse.trace_id.as_deref(),
     ) {
         Ok(_) => {
-            if langfuse_enabled && !langfuse_secret_key.is_empty() && !langfuse_public_key.is_empty() {
-                info!("Langfuse tracing initialized for project: {}", langfuse_project_id);
+            if langfuse_enabled
+                && !langfuse_secret_key.is_empty()
+                && !langfuse_public_key.is_empty()
+            {
+                info!(
+                    "Langfuse tracing initialized for project: {}",
+                    langfuse_project_id
+                );
             }
-        },
+        }
         Err(e) => warn!("Failed to initialize Langfuse tracing: {}", e),
     }
 
@@ -229,27 +239,26 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Relevance => {
             info!("Running relevance assessment");
-            relevance::process_codebase(&config, &config.codebase, problem.clone())
-                .await?;
+            relevance::process_codebase(&config, &config.codebase, problem.clone()).await?;
         }
         Command::Ranking => {
             info!("Running file ranking");
             // Verify that relevance assessments have been run
             let trajectory_store = engine_builder::utils::trajectory_store::TrajectoryStore::new(
-                &config.get_trajectory_dir(&problem.id), 
-                &problem
+                &config.get_trajectory_dir(&problem.id),
+                &problem,
             )?;
-            
+
             let relevance_path = trajectory_store.relevance_decisions_path();
             if !relevance_path.exists() {
                 info!("Relevance decisions file not found. Ensure you've run the relevance step first with 'cargo run --release -- relevance'");
             }
-            
+
             ranking::process_rankings(&config, problem.clone()).await?;
         }
         Command::Pipeline => {
             info!("Running full pipeline");
-            
+
             // Run file selection first to generate codebase_tree_response.txt
             info!("Running file selection process");
             file_selection::process_file_selection(
@@ -259,18 +268,21 @@ async fn main() -> Result<()> {
                 &config.get_trajectory_dir(&problem.id),
             )
             .await?;
-            
+
             // Then process relevance using the existing codebase_tree_response.txt
-            relevance::process_codebase(&config, &config.codebase, problem.clone())
-                .await?;
-            
+            relevance::process_codebase(&config, &config.codebase, problem.clone()).await?;
+
             info!("Running file ranking");
             ranking::process_rankings(&config, problem.clone()).await?;
             info!("Generating lint and test scripts based on ranked files");
-            engine_builder::stages::scripts::generate_scripts_from_ranking(&config, problem.clone()).await?;
+            engine_builder::stages::scripts::generate_scripts_from_ranking(
+                &config,
+                problem.clone(),
+            )
+            .await?;
             info!("Generating test-focused Dockerfile based on ranked files");
             dockerfile::generate_dockerfile(&config, problem.clone()).await?;
-            
+
             // Finally, generate the overview document with reasoning from all stages
             info!("Generating overview document");
             engine_builder::stages::overview::generate_overview(&config, &problem).await?;
@@ -299,17 +311,24 @@ async fn main() -> Result<()> {
         }
         Command::GenerateScripts => {
             info!("Generating lint and test scripts based on ranked files");
-            engine_builder::stages::scripts::generate_scripts_from_ranking(&config, problem.clone()).await?;
+            engine_builder::stages::scripts::generate_scripts_from_ranking(
+                &config,
+                problem.clone(),
+            )
+            .await?;
         }
         Command::RunLint { tag } => {
             info!("Running lint container with image tag: {}", tag);
             let result = container::run_lint_container(&problem, &tag, &config.container).await?;
-            
+
             // Print summary
             println!("\nLint container execution complete");
             println!("Exit code: {}", result.exit_code);
-            println!("Status: {}", if result.success { "SUCCESS" } else { "FAILED" });
-            
+            println!(
+                "Status: {}",
+                if result.success { "SUCCESS" } else { "FAILED" }
+            );
+
             // Set exit code if container failed
             if !result.success {
                 std::process::exit(1);
@@ -318,50 +337,68 @@ async fn main() -> Result<()> {
         Command::RunTest { tag } => {
             info!("Running test container with image tag: {}", tag);
             let result = container::run_test_container(&problem, &tag, &config.container).await?;
-            
+
             // Print summary
             println!("\nTest container execution complete");
             println!("Exit code: {}", result.exit_code);
-            println!("Status: {}", if result.success { "SUCCESS" } else { "FAILED" });
-            
+            println!(
+                "Status: {}",
+                if result.success { "SUCCESS" } else { "FAILED" }
+            );
+
             // Set exit code if container failed
             if !result.success {
                 std::process::exit(1);
             }
         }
         Command::RunAll { tag, parallel } => {
-            info!("Running both lint and test containers with image tag: {}", tag);
-            
+            info!(
+                "Running both lint and test containers with image tag: {}",
+                tag
+            );
+
             // Override parallel flag from CLI if provided
             let mut container_config = config.container.clone();
             if parallel {
                 container_config.parallel = true;
             }
-            
-            let (lint_result, test_result) = container::run_containers(
-                &problem, 
-                &tag, 
-                &container_config
-            ).await?;
-            
+
+            let (lint_result, test_result) =
+                container::run_containers(&problem, &tag, &container_config).await?;
+
             // Print summary
             println!("\nContainer execution summary:");
-            println!("Lint container: {} (exit code: {})", 
-                if lint_result.success { "SUCCESS".green() } else { "FAILED".red() }, 
-                lint_result.exit_code);
-                
-            println!("Test container: {} (exit code: {})", 
-                if test_result.success { "SUCCESS".green() } else { "FAILED".red() }, 
-                test_result.exit_code);
-            
+            println!(
+                "Lint container: {} (exit code: {})",
+                if lint_result.success {
+                    "SUCCESS".green()
+                } else {
+                    "FAILED".red()
+                },
+                lint_result.exit_code
+            );
+
+            println!(
+                "Test container: {} (exit code: {})",
+                if test_result.success {
+                    "SUCCESS".green()
+                } else {
+                    "FAILED".red()
+                },
+                test_result.exit_code
+            );
+
             // Set exit code if either container failed
             if !lint_result.success || !test_result.success {
                 std::process::exit(1);
             }
         }
-        Command::Chat { config_type, temperature } => {
+        Command::Chat {
+            config_type,
+            temperature,
+        } => {
             info!("Starting chat session with LLM");
-            
+
             // First check if we have a dedicated chat model config
             let llm_config = if config.chat.model.is_some() {
                 info!("Using dedicated chat model configuration");
@@ -381,17 +418,17 @@ async fn main() -> Result<()> {
                     }
                 }
             };
-            
+
             // Use config temperature unless overridden by command line
             let temp = temperature.unwrap_or(config.chat.temperature);
-            
+
             // Create chat configuration
             let chat_config = engine_builder::chat::ChatConfig {
                 llm_config,
                 max_tokens: config.chat.max_tokens,
                 temperature: temp,
             };
-            
+
             // Start the chat session
             engine_builder::chat::start_chat(chat_config).await?;
         }

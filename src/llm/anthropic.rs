@@ -104,44 +104,51 @@ impl AnthropicClient {
             pricing_cache: RwLock::new(HashMap::new()),
         })
     }
-    
+
     /// Parse a prompt string into Anthropic-compatible message format
     /// Returns a tuple of (Optional system message, Vec of message objects)
     fn parse_prompt(&self, prompt: &str) -> (Option<String>, Vec<serde_json::Value>) {
         let mut messages = Vec::new();
         let mut system_message = None;
-        
+
         // Split prompt into lines
         let lines: Vec<&str> = prompt.split('\n').collect();
         let mut i = 0;
-        
+
         // Extract messages and roles
         while i < lines.len() {
             let line = lines[i].trim();
-            
+
             if line.starts_with("System:") {
                 // Extract system message
                 let msg_start = line.find(':').map(|idx| idx + 1).unwrap_or(0);
                 let mut msg = line[msg_start..].trim().to_string();
-                
+
                 // Collect additional lines until next role or end
                 i += 1;
-                while i < lines.len() && !lines[i].trim().starts_with("Human:") && !lines[i].trim().starts_with("Assistant:") {
+                while i < lines.len()
+                    && !lines[i].trim().starts_with("Human:")
+                    && !lines[i].trim().starts_with("Assistant:")
+                {
                     msg.push_str("\n");
                     msg.push_str(lines[i].trim());
                     i += 1;
                 }
-                
+
                 system_message = Some(msg);
                 continue;
             } else if line.starts_with("Human:") {
                 // Extract human message
                 let msg_start = line.find(':').map(|idx| idx + 1).unwrap_or(0);
                 let mut msg = line[msg_start..].trim().to_string();
-                
+
                 // Collect additional lines until next role or end
                 i += 1;
-                while i < lines.len() && !lines[i].trim().starts_with("Human:") && !lines[i].trim().starts_with("Assistant:") && !lines[i].trim().starts_with("System:") {
+                while i < lines.len()
+                    && !lines[i].trim().starts_with("Human:")
+                    && !lines[i].trim().starts_with("Assistant:")
+                    && !lines[i].trim().starts_with("System:")
+                {
                     if !lines[i].trim().is_empty() {
                         if !msg.is_empty() {
                             msg.push_str("\n");
@@ -150,7 +157,7 @@ impl AnthropicClient {
                     }
                     i += 1;
                 }
-                
+
                 if !msg.is_empty() {
                     messages.push(json!({
                         "role": "user",
@@ -162,10 +169,14 @@ impl AnthropicClient {
                 // Extract assistant message
                 let msg_start = line.find(':').map(|idx| idx + 1).unwrap_or(0);
                 let mut msg = line[msg_start..].trim().to_string();
-                
+
                 // Collect additional lines until next role or end
                 i += 1;
-                while i < lines.len() && !lines[i].trim().starts_with("Human:") && !lines[i].trim().starts_with("Assistant:") && !lines[i].trim().starts_with("System:") {
+                while i < lines.len()
+                    && !lines[i].trim().starts_with("Human:")
+                    && !lines[i].trim().starts_with("Assistant:")
+                    && !lines[i].trim().starts_with("System:")
+                {
                     if !lines[i].trim().is_empty() {
                         if !msg.is_empty() {
                             msg.push_str("\n");
@@ -174,7 +185,7 @@ impl AnthropicClient {
                     }
                     i += 1;
                 }
-                
+
                 if !msg.is_empty() {
                     messages.push(json!({
                         "role": "assistant",
@@ -183,11 +194,11 @@ impl AnthropicClient {
                 }
                 continue;
             }
-            
+
             // If no role prefix is found, move to next line
             i += 1;
         }
-        
+
         // If no valid messages found but prompt isn't empty, treat it as a user message
         if messages.is_empty() && !prompt.trim().is_empty() {
             messages.push(json!({
@@ -195,7 +206,7 @@ impl AnthropicClient {
                 "content": prompt.trim()
             }));
         }
-        
+
         (system_message, messages)
     }
 
@@ -210,7 +221,9 @@ impl AnthropicClient {
         match self.config.model.as_str() {
             m if m.contains("claude-3-opus") || m.contains("claude-3-7-opus") => (0.015, 0.075),
             m if m.contains("claude-3-sonnet") || m.contains("claude-3-7-sonnet") => (0.003, 0.015),
-            m if m.contains("claude-3-haiku") || m.contains("claude-3-5-haiku") => (0.00025, 0.00125),
+            m if m.contains("claude-3-haiku") || m.contains("claude-3-5-haiku") => {
+                (0.00025, 0.00125)
+            }
             m if m.contains("claude-2") => (0.01, 0.03),
             m if m.contains("claude-instant") => (0.0008, 0.0024),
             _ => {
@@ -238,10 +251,10 @@ impl LLMClient for AnthropicClient {
             .as_deref()
             .unwrap_or("https://api.anthropic.com");
         let url = format!("{}/v1/messages", base_url);
-        
+
         // Parse the prompt to extract system message and conversation
         let (system_message, messages) = self.parse_prompt(prompt);
-        
+
         // Build the request body with proper formatting
         let mut request_body = json!({
             "model": self.config.model,
@@ -249,7 +262,7 @@ impl LLMClient for AnthropicClient {
             "max_tokens": max_tokens,
             "temperature": temperature,
         });
-        
+
         // Add system prompt if available
         if let Some(system) = system_message {
             request_body["system"] = json!(system);

@@ -57,7 +57,7 @@ impl SWEBenchProblem {
             gitignore: None,
         }
     }
-    
+
     /// Get the codebase path
     pub fn get_codebase_path(&self) -> Option<&PathBuf> {
         self.codebase_path.as_ref()
@@ -221,7 +221,7 @@ impl SWEBenchProblem {
     /// Check if a directory entry should be excluded
     pub fn should_exclude(&self, entry: &DirEntry) -> bool {
         let path = entry.path();
-        
+
         // Always exclude .git directories and their contents regardless of location
         for ancestor in path.ancestors() {
             if let Some(dir_name) = ancestor.file_name() {
@@ -233,14 +233,14 @@ impl SWEBenchProblem {
                 }
             }
         }
-        
+
         // Skip directory-based exclusion for paths in temporary test directories
         let in_temp_dir = if let Some(path_str) = path.to_str() {
             path_str.contains("/tmp/") || path_str.contains("/.tmp")
         } else {
             false
         };
-        
+
         // Special handling for test directories
         if in_temp_dir {
             if let Some(path_str) = path.to_str() {
@@ -253,19 +253,19 @@ impl SWEBenchProblem {
                         }
                     }
                 }
-                
+
                 // Exclude node_modules directory and its contents
                 if path_str.contains("node_modules") {
                     return true;
                 }
-                
+
                 // Exclude .log files
                 if path_str.ends_with(".log") {
                     return true;
                 }
             }
         }
-        
+
         // Always apply gitignore rules regardless of directory
         if let Some(gitignore) = &self.gitignore {
             let is_dir = entry.file_type().is_dir();
@@ -275,7 +275,7 @@ impl SWEBenchProblem {
                 return true;
             }
         }
-        
+
         // Skip hidden files and directories (if not already excluded by gitignore)
         if let Some(file_name) = entry.file_name().to_str() {
             if file_name.starts_with('.') && file_name != ".gitignore" {
@@ -283,7 +283,7 @@ impl SWEBenchProblem {
                 return true;
             }
         }
-        
+
         // If in temp directory, skip the directory-based exclusions
         if in_temp_dir {
             return false;

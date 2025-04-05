@@ -15,19 +15,15 @@ use crate::models::problem::SWEBenchProblem;
 use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate a test-focused Dockerfile based on ranked files
-pub async fn generate_dockerfile(
-    config: &Config,
-    mut problem: SWEBenchProblem,
-) -> Result<()> {
+pub async fn generate_dockerfile(config: &Config, mut problem: SWEBenchProblem) -> Result<()> {
     info!("Starting test-focused Dockerfile generation");
 
     // Get the trajectory directory for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Check if ranking exists
     if !trajectory_store.ranking_exists() {
@@ -38,9 +34,10 @@ pub async fn generate_dockerfile(
     }
 
     // Load the ranking
-    let ranking_context = trajectory_store
-        .load_ranking()
-        .context(format!("Failed to load ranking for problem: {}", problem.id))?;
+    let ranking_context = trajectory_store.load_ranking().context(format!(
+        "Failed to load ranking for problem: {}",
+        problem.id
+    ))?;
 
     // Extract ranked files
     let ranked_files = ranking_context.ranked_files;
@@ -56,7 +53,11 @@ pub async fn generate_dockerfile(
     let max_files = 5;
     let ranked_files = ranked_files.into_iter().take(max_files).collect::<Vec<_>>();
 
-    info!("Found {} ranked files, using top {} for Dockerfile generation", ranked_files.len(), max_files);
+    info!(
+        "Found {} ranked files, using top {} for Dockerfile generation",
+        ranked_files.len(),
+        max_files
+    );
 
     // Load file contents
     let mut file_contents = Vec::new();
@@ -83,8 +84,9 @@ pub async fn generate_dockerfile(
     info!("Generating Dockerfile from ranked files");
 
     // Generate the user prompt for the LLM
-    let user_prompt = get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
-    
+    let user_prompt =
+        get_test_dockerfile_user_prompt(&problem.problem_statement, &ranked_files, &file_contents);
+
     // Combine with system prompt
     let combined_dockerfile_prompt = format!(
         "System instructions:\n{}\n\nUser request:\n{}",
@@ -106,7 +108,7 @@ pub async fn generate_dockerfile(
 
     // Save full LLM response which contains reasoning
     let full_llm_response = llm_response.content.clone();
-    
+
     // Try to extract the Dockerfile content from markdown code blocks
     let dockerfile_content = match extract_dockerfile_from_response(&full_llm_response) {
         Some(content) => content,
@@ -119,24 +121,24 @@ pub async fn generate_dockerfile(
     // Save the full response with reasoning to the reasoning directory
     let reasoning_path = Path::new(&config.get_dockerfile_path(&problem.id))
         .with_file_name(format!("dockerfile_reasoning_{}.md", problem.id));
-    
+
     fs::create_dir_all(reasoning_path.parent().unwrap()).context(format!(
         "Failed to create directory for Dockerfile reasoning at {:?}",
         reasoning_path.parent().unwrap()
     ))?;
-    
+
     fs::write(&reasoning_path, &full_llm_response).context(format!(
         "Failed to write Dockerfile reasoning to {:?}",
         reasoning_path
     ))?;
-    
+
     // Also save to the structured reasoning storage
     let metadata = serde_json::json!({
         "model": config.dockerfile.model,
         "tokens": llm_response.usage.total_tokens,
         "temperature": config.dockerfile.temperature
     });
-    
+
     crate::stages::overview::save_reasoning(
         config,
         &problem,
@@ -144,8 +146,9 @@ pub async fn generate_dockerfile(
         "",
         &full_llm_response,
         Some(metadata),
-    ).context("Failed to save Dockerfile reasoning to structured storage")?;
-    
+    )
+    .context("Failed to save Dockerfile reasoning to structured storage")?;
+
     info!("Generated Dockerfile content");
     info!("Saved Dockerfile reasoning to {:?}", reasoning_path);
 
@@ -221,7 +224,7 @@ pub async fn generate_dockerfile(
         "Failed to create Dockerfile directory at {:?}",
         dockerfile_dir
     ))?;
-    
+
     let dockerfile_path = Path::new(&config.get_dockerfile_path(&problem.id)).to_path_buf();
     fs::write(&dockerfile_path, &final_dockerfile_content).context(format!(
         "Failed to write test-focused Dockerfile to {:?}",
@@ -229,6 +232,31 @@ pub async fn generate_dockerfile(
     ))?;
 
     info!("Test-focused Dockerfile saved to {:?}", dockerfile_path);
+
+    Ok(())
+}
+
+/// Helper function to clean up copied files after Docker build
+fn cleanup_copied_files(docker_context_dir: &Path) -> Result<()> {
+    info!("Cleaning up files copied to Docker context");
+
+    // List of files to clean up
+    let files_to_clean = vec![
+        "Dockerfile",
+        "setup-script.sh",
+        "lint-script.sh",
+        "test-script.sh",
+        "single-test-script.sh",
+    ];
+
+    for file in files_to_clean {
+        let file_path = docker_context_dir.join(file);
+        if file_path.exists() {
+            fs::remove_file(&file_path)
+                .context(format!("Failed to remove copied file: {:?}", file_path))?;
+            info!("Removed copied file: {:?}", file_path);
+        }
+    }
 
     Ok(())
 }
@@ -241,14 +269,13 @@ pub async fn build_docker_image(
 ) -> Result<()> {
     // Get the max retries from config
     let max_retries = config.dockerfile.max_retries;
-    
+
     // Get trajectory directory for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     let mut retry_count = 0;
     while retry_count <= max_retries {
@@ -321,14 +348,17 @@ pub async fn build_docker_image(
         } else {
             dockerfile_path.clone()
         };
-        
+
         // Copy the Dockerfile to the Docker context
         let dest_path = docker_context_dir.join("Dockerfile");
         fs::copy(&source_path, &dest_path).context(format!(
             "Failed to copy Dockerfile to Docker context: {:?}",
             dest_path
         ))?;
-        info!("Copied Dockerfile from {:?} to Docker context: {:?}", source_path, dest_path);
+        info!(
+            "Copied Dockerfile from {:?} to Docker context: {:?}",
+            source_path, dest_path
+        );
 
         // Build the Docker image
         info!("Building Docker image with tag: {}", tag);
@@ -361,6 +391,11 @@ pub async fn build_docker_image(
             warn!("Docker build stderr: {}", error_output);
         }
 
+        // Clean up copied files from Docker context
+        if let Err(e) = cleanup_copied_files(&docker_context_dir) {
+            warn!("Failed to clean up copied files: {}", e);
+        }
+
         // Check if the build was successful
         if build_output.status.success() {
             println!("\nDocker build completed successfully!");
@@ -388,7 +423,7 @@ pub async fn build_docker_image(
         // Update the Dockerfile using LLM suggestions
         println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
-        
+
         // Create a config for the update_dockerfile_from_error function
         let dockerfile_config = DockerfileConfig {
             model: Some("claude-3-opus-20240229".to_string()),
@@ -396,10 +431,15 @@ pub async fn build_docker_image(
             temperature: 0.0,
             max_retries: 3,
         };
-        
-        let updated_dockerfile =
-            update_dockerfile_from_error(&dockerfile_config, problem, &dockerfile_path, &error_output, retry_count)
-                .await?;
+
+        let updated_dockerfile = update_dockerfile_from_error(
+            &dockerfile_config,
+            problem,
+            &dockerfile_path,
+            &error_output,
+            retry_count,
+        )
+        .await?;
 
         // Save the updated Dockerfile
         let backup_path = dockerfile_path.with_extension(format!("backup.{}", retry_count));
@@ -465,7 +505,7 @@ async fn update_dockerfile_from_error(
 
     // Get API key from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-    
+
     // Get the parent config to access additional settings
     let parent_config = std::env::var("ENGINE_BUILDER_CONFIG")
         .map(|path| crate::config::Config::from_file(Some(&path)))
@@ -474,7 +514,10 @@ async fn update_dockerfile_from_error(
     // Create LLM config with the API key
     let llm_config = crate::config::LLMConfig {
         model_type: "anthropic".to_string(),
-        model: config.model.clone().unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
+        model: config
+            .model
+            .clone()
+            .unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
         api_key,
         base_url: None,
         timeout: 60,
@@ -492,7 +535,7 @@ async fn update_dockerfile_from_error(
         &dockerfile_content,
         error_output,
     );
-    
+
     // Combine with system prompt
     let combined_error_prompt = format!(
         "System instructions:\n{}\n\nUser request:\n{}",
@@ -516,22 +559,21 @@ async fn update_dockerfile_from_error(
     let full_llm_response = llm_response.content.clone();
 
     // Save the reasoning to a file
-    let reasoning_path = dockerfile_path.with_file_name(
-        format!("dockerfile_error_reasoning_{}.md", problem.id)
-    );
-    
+    let reasoning_path =
+        dockerfile_path.with_file_name(format!("dockerfile_error_reasoning_{}.md", problem.id));
+
     fs::write(&reasoning_path, &full_llm_response).context(format!(
         "Failed to write Dockerfile error reasoning to {:?}",
         reasoning_path
     ))?;
-    
+
     // Use parent_config if available, or create a minimal one
     let parent_config_val = match parent_config {
         Ok(ref conf) => conf.clone(),
         Err(_) => {
             // Just use environment variables for API keys and minimal default settings
             let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-            
+
             // Load the existing CodebaseConfig since it doesn't have a Default impl
             let codebase = crate::config::CodebaseConfig {
                 path: if let Some(path) = problem.get_codebase_path() {
@@ -543,7 +585,7 @@ async fn update_dockerfile_from_error(
                 problem_statement: problem.problem_statement.clone(),
                 exclusions_path: "exclusions.json".to_string(),
             };
-            
+
             crate::config::Config {
                 anthropic_api_key: api_key,
                 model: "claude-3-opus-20240229".to_string(),
@@ -559,7 +601,7 @@ async fn update_dockerfile_from_error(
             }
         }
     };
-    
+
     // Add attempt number as identifier
     let metadata = serde_json::json!({
         "model": config.model,
@@ -567,7 +609,7 @@ async fn update_dockerfile_from_error(
         "temperature": config.temperature,
         "attempt": attempt
     });
-    
+
     crate::stages::overview::save_reasoning(
         &parent_config_val,
         problem,
@@ -575,8 +617,9 @@ async fn update_dockerfile_from_error(
         &format!("_{}", attempt),
         &full_llm_response,
         Some(metadata),
-    ).context("Failed to save Dockerfile error reasoning to structured storage")?;
-    
+    )
+    .context("Failed to save Dockerfile error reasoning to structured storage")?;
+
     info!("Saved Dockerfile error reasoning to {:?}", reasoning_path);
 
     // Try to extract the Dockerfile content from markdown code blocks

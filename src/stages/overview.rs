@@ -8,19 +8,15 @@ use crate::models::problem::SWEBenchProblem;
 use crate::utils::trajectory_store::TrajectoryStore;
 
 /// Generate an overview document that summarizes the reasoning across all stages
-pub async fn generate_overview(
-    config: &Config,
-    problem: &SWEBenchProblem,
-) -> Result<()> {
+pub async fn generate_overview(config: &Config, problem: &SWEBenchProblem) -> Result<()> {
     info!("Starting overview generation for problem: {}", problem.id);
 
     // Get the trajectory directory for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Initialize overview data
     let mut overview = OverviewData::new(&problem.id, &problem.problem_statement);
@@ -30,7 +26,7 @@ pub async fn generate_overview(
         "Failed to list reasoning files for problem: {}",
         problem.id
     ))?;
-    
+
     info!("Found {} reasoning files", reasoning_files.len());
 
     // Process each reasoning file and add to overview
@@ -48,14 +44,20 @@ pub async fn generate_overview(
         if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
             // Process file according to its pattern
             if file_selection_re.is_match(file_name) {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("file_selection", "") {
+                if let Ok((reasoning, _)) =
+                    trajectory_store.load_stage_reasoning("file_selection", "")
+                {
                     overview.file_selection_reasoning = Some(reasoning);
                 }
             } else if let Some(captures) = relevance_re.captures(file_name) {
                 if let Some(file_path_match) = captures.get(1) {
                     let file_path_str = file_path_match.as_str();
-                    if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("relevance", &format!("_{}", file_path_str)) {
-                        overview.relevance_reasoning.insert(file_path_str.to_string(), reasoning);
+                    if let Ok((reasoning, _)) = trajectory_store
+                        .load_stage_reasoning("relevance", &format!("_{}", file_path_str))
+                    {
+                        overview
+                            .relevance_reasoning
+                            .insert(file_path_str.to_string(), reasoning);
                     }
                 }
             } else if ranking_re.is_match(file_name) {
@@ -63,30 +65,43 @@ pub async fn generate_overview(
                     overview.ranking_reasoning = Some(reasoning);
                 }
             } else if setup_script_re.is_match(file_name) {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("setup_script", "") {
+                if let Ok((reasoning, _)) =
+                    trajectory_store.load_stage_reasoning("setup_script", "")
+                {
                     overview.setup_script_reasoning = Some(reasoning);
                 }
             } else if lint_script_re.is_match(file_name) {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("lint_script", "") {
+                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("lint_script", "")
+                {
                     overview.lint_script_reasoning = Some(reasoning);
                 }
-            } else if test_script_re.is_match(file_name) && !file_name.contains("single_test_script") {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("test_script", "") {
+            } else if test_script_re.is_match(file_name)
+                && !file_name.contains("single_test_script")
+            {
+                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("test_script", "")
+                {
                     overview.test_script_reasoning = Some(reasoning);
                 }
             } else if single_test_script_re.is_match(file_name) {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("single_test_script", "") {
+                if let Ok((reasoning, _)) =
+                    trajectory_store.load_stage_reasoning("single_test_script", "")
+                {
                     overview.single_test_script_reasoning = Some(reasoning);
                 }
             } else if dockerfile_re.is_match(file_name) && !file_name.contains("dockerfile_error") {
-                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("dockerfile", "") {
+                if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("dockerfile", "")
+                {
                     overview.dockerfile_reasoning = Some(reasoning);
                 }
             } else if let Some(captures) = dockerfile_error_re.captures(file_name) {
                 if let Some(attempt_match) = captures.get(1) {
                     let attempt = attempt_match.as_str();
-                    if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("dockerfile_error", &format!("_{}", attempt)) {
-                        overview.dockerfile_error_reasoning.insert(attempt.to_string(), reasoning);
+                    if let Ok((reasoning, _)) = trajectory_store
+                        .load_stage_reasoning("dockerfile_error", &format!("_{}", attempt))
+                    {
+                        overview
+                            .dockerfile_error_reasoning
+                            .insert(attempt.to_string(), reasoning);
                     }
                 }
             }
@@ -94,11 +109,13 @@ pub async fn generate_overview(
     }
 
     // Save the detailed overview data
-    trajectory_store.save_overview_data(&overview).context(format!(
-        "Failed to save overview data for problem: {}",
-        problem.id
-    ))?;
-    
+    trajectory_store
+        .save_overview_data(&overview)
+        .context(format!(
+            "Failed to save overview data for problem: {}",
+            problem.id
+        ))?;
+
     // Generate and save the summarized version
     info!("Generating summarized overview...");
     match overview.to_summarized_markdown(config).await {
@@ -118,7 +135,10 @@ pub async fn generate_overview(
     }
 
     info!("Overview generation completed");
-    info!("Detailed overview saved to {:?}", trajectory_store.overview_md_path());
+    info!(
+        "Detailed overview saved to {:?}",
+        trajectory_store.overview_md_path()
+    );
 
     Ok(())
 }
@@ -134,17 +154,18 @@ pub fn save_reasoning(
 ) -> Result<()> {
     // Get the trajectory directory for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
-    
-    // Save the reasoning
-    trajectory_store.save_stage_reasoning(stage, suffix, reasoning, metadata).context(format!(
-        "Failed to save reasoning for stage {} of problem: {}",
-        stage, problem.id
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
     ))?;
-    
+
+    // Save the reasoning
+    trajectory_store
+        .save_stage_reasoning(stage, suffix, reasoning, metadata)
+        .context(format!(
+            "Failed to save reasoning for stage {} of problem: {}",
+            stage, problem.id
+        ))?;
+
     Ok(())
 }

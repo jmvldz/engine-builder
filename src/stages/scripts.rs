@@ -6,10 +6,10 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::llm::client::{create_client, TokenCost};
-use crate::llm::prompts::{get_lint_script_user_prompt, get_test_script_user_prompt, 
-                         get_setup_script_user_prompt,
-                         LINT_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
-                         SETUP_SCRIPT_SYSTEM_PROMPT};
+use crate::llm::prompts::{
+    get_lint_script_user_prompt, get_setup_script_user_prompt, get_test_script_user_prompt,
+    LINT_SCRIPT_SYSTEM_PROMPT, SETUP_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
+};
 use crate::models::problem::SWEBenchProblem;
 use crate::models::ranking::RankedCodebaseFile;
 use crate::models::relevance::RelevanceStatus;
@@ -38,14 +38,13 @@ pub async fn generate_scripts_from_ranking(
 
     // Create a trajectory store for this problem
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
-    
+
     // Create a trajectory store
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
-        
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
+
     // Check if ranking exists
     if !trajectory_store.ranking_exists() {
         return Err(anyhow::anyhow!(
@@ -53,24 +52,25 @@ pub async fn generate_scripts_from_ranking(
             problem.id
         ));
     }
-    
+
     // Load the ranking
-    let ranking_context = trajectory_store
-        .load_ranking()
-        .context(format!("Failed to load ranking for problem: {}", problem.id))?;
-        
+    let ranking_context = trajectory_store.load_ranking().context(format!(
+        "Failed to load ranking for problem: {}",
+        problem.id
+    ))?;
+
     // Extract ranked files
     let ranked_files = ranking_context.ranked_files;
-    
+
     if ranked_files.is_empty() {
         return Err(anyhow::anyhow!(
             "No ranked files found for problem: {}",
             problem.id
         ));
     }
-    
+
     info!("Found {} ranked files", ranked_files.len());
-    
+
     // Call the script generation function
     generate_scripts(config, problem).await
 }
@@ -99,27 +99,23 @@ pub fn extract_script(response: &str) -> Result<String> {
 }
 
 /// Generate lint and test scripts based on relevance data
-pub async fn generate_scripts(
-    config: &Config,
-    mut problem: SWEBenchProblem,
-) -> Result<()> {
+pub async fn generate_scripts(config: &Config, mut problem: SWEBenchProblem) -> Result<()> {
     info!("Starting script generation from relevance data");
 
     // Get trajectory and scripts directories
     let trajectory_dir = config.get_trajectory_dir(&problem.id);
     let scripts_dir = config.get_scripts_dir(&problem.id);
-    
+
     // Create the scripts directory
     std::fs::create_dir_all(&scripts_dir).context(format!(
         "Failed to create scripts directory: {}",
         scripts_dir
     ))?;
-    
-    let trajectory_store =
-        TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
-            "Failed to create trajectory store for problem: {}",
-            problem.id
-        ))?;
+
+    let trajectory_store = TrajectoryStore::new(&trajectory_dir, &problem).context(format!(
+        "Failed to create trajectory store for problem: {}",
+        problem.id
+    ))?;
 
     // Check if relevance decisions exist in the consolidated file
     let relevance_decisions_path = trajectory_store.relevance_decisions_path();
@@ -131,10 +127,12 @@ pub async fn generate_scripts(
     }
 
     // Load all relevance decisions and find relevant files
-    let all_decisions = trajectory_store.load_all_relevance_decisions().context(format!(
-        "Failed to load relevance decisions for problem: {}",
-        problem.id
-    ))?;
+    let all_decisions = trajectory_store
+        .load_all_relevance_decisions()
+        .context(format!(
+            "Failed to load relevance decisions for problem: {}",
+            problem.id
+        ))?;
 
     // Get relevant files
     let relevant_files = all_decisions
@@ -182,21 +180,26 @@ pub async fn generate_scripts(
     // Generate setup script
     info!("Generating setup script...");
     // Create a Vec of RankedCodebaseFile from formatted_files
-    let ranked_files: Vec<RankedCodebaseFile> = formatted_files.iter()
+    let ranked_files: Vec<RankedCodebaseFile> = formatted_files
+        .iter()
         .map(|path| RankedCodebaseFile {
             path: path.clone(),
             tokens: 0, // We don't need actual token counts here
         })
         .collect();
-        
+
     // Prepare file_contents in the right format (path, content) without summaries
     let file_contents_for_prompt: Vec<(String, String)> = file_contents
         .iter()
         .map(|(path, _, content)| (path.clone(), content.clone()))
         .collect();
-        
-    let setup_prompt = get_setup_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
-    
+
+    let setup_prompt = get_setup_script_user_prompt(
+        &problem.problem_statement,
+        &ranked_files,
+        &file_contents_for_prompt,
+    );
+
     // Create a combined prompt with system and user instructions
     let combined_setup_prompt = format!(
         "System instructions:\n{}\n\nUser request:\n{}",
@@ -228,14 +231,14 @@ pub async fn generate_scripts(
     let setup_cost = client.calculate_cost(&setup_usage);
     info!("Setup script generation LLM usage: {}", setup_usage);
     info!("Setup script generation LLM cost: {}", setup_cost);
-    
+
     // Save setup script reasoning
     let metadata = serde_json::json!({
         "model": config.scripts.model,
         "tokens": setup_usage.total_tokens,
         "temperature": config.scripts.temperature
     });
-    
+
     crate::stages::overview::save_reasoning(
         config,
         &problem,
@@ -243,7 +246,8 @@ pub async fn generate_scripts(
         "",
         &setup_response.content,
         Some(metadata),
-    ).context("Failed to save setup script reasoning to structured storage")?;
+    )
+    .context("Failed to save setup script reasoning to structured storage")?;
 
     // Extract setup script content
     let setup_script_content = extract_script(&setup_response.content)
@@ -275,9 +279,13 @@ pub async fn generate_scripts(
 
     // Generate lint script
     info!("Generating lint script...");
-    let mut lint_prompt = get_lint_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
+    let mut lint_prompt = get_lint_script_user_prompt(
+        &problem.problem_statement,
+        &ranked_files,
+        &file_contents_for_prompt,
+    );
     lint_prompt.push_str(&additional_context);
-    
+
     // Create a combined prompt with system and user instructions
     let combined_lint_prompt = format!(
         "System instructions:\n{}\n\nUser request:\n{}",
@@ -316,7 +324,7 @@ pub async fn generate_scripts(
         "tokens": lint_usage.total_tokens,
         "temperature": config.scripts.temperature
     });
-    
+
     crate::stages::overview::save_reasoning(
         config,
         &problem,
@@ -324,7 +332,8 @@ pub async fn generate_scripts(
         "",
         &lint_response.content,
         Some(metadata),
-    ).context("Failed to save lint script reasoning to structured storage")?;
+    )
+    .context("Failed to save lint script reasoning to structured storage")?;
 
     // Extract lint script content
     let lint_script_content = extract_script(&lint_response.content)
@@ -350,9 +359,13 @@ pub async fn generate_scripts(
 
     // Generate test script
     info!("Generating test script...");
-    let mut test_prompt = get_test_script_user_prompt(&problem.problem_statement, &ranked_files, &file_contents_for_prompt);
+    let mut test_prompt = get_test_script_user_prompt(
+        &problem.problem_statement,
+        &ranked_files,
+        &file_contents_for_prompt,
+    );
     test_prompt.push_str(&additional_context);
-    
+
     // Create a combined prompt with system and user instructions
     let combined_test_prompt = format!(
         "System instructions:\n{}\n\nUser request:\n{}",
@@ -391,7 +404,7 @@ pub async fn generate_scripts(
         "tokens": test_usage.total_tokens,
         "temperature": config.scripts.temperature
     });
-    
+
     crate::stages::overview::save_reasoning(
         config,
         &problem,
@@ -399,7 +412,8 @@ pub async fn generate_scripts(
         "",
         &test_response.content,
         Some(metadata),
-    ).context("Failed to save test script reasoning to structured storage")?;
+    )
+    .context("Failed to save test script reasoning to structured storage")?;
 
     // Extract test script content
     let test_script_content = extract_script(&test_response.content)
@@ -428,13 +442,12 @@ pub async fn generate_scripts(
 
     // Extract the first test from the test script to use as the basis
     // for the single test script
-    let first_test = if let Some(line) = test_script_content.lines()
-        .find(|line| {
-            line.contains("function test_") 
-                || line.contains("def test_") 
-                || line.contains("test() {") 
-                || (line.starts_with("test") && line.contains("{"))
-        }) {
+    let first_test = if let Some(line) = test_script_content.lines().find(|line| {
+        line.contains("function test_")
+            || line.contains("def test_")
+            || line.contains("test() {")
+            || (line.starts_with("test") && line.contains("{"))
+    }) {
         line.to_string()
     } else {
         "# First test".to_string()
@@ -456,7 +469,7 @@ For reference, here's the test script:
 
 And here's what looks like a test function: {}
 
-Create a script called 'single-test-script.sh' that runs just one specified test.", 
+Create a script called 'single-test-script.sh' that runs just one specified test.",
         test_script_content, first_test
     );
 
@@ -489,8 +502,14 @@ Create a script called 'single-test-script.sh' that runs just one specified test
     // Track usage
     let single_test_usage = single_test_response.usage;
     let single_test_cost = client.calculate_cost(&single_test_usage);
-    info!("Single test script generation LLM usage: {}", single_test_usage);
-    info!("Single test script generation LLM cost: {}", single_test_cost);
+    info!(
+        "Single test script generation LLM usage: {}",
+        single_test_usage
+    );
+    info!(
+        "Single test script generation LLM cost: {}",
+        single_test_cost
+    );
 
     // Save single test script reasoning
     let metadata = serde_json::json!({
@@ -498,7 +517,7 @@ Create a script called 'single-test-script.sh' that runs just one specified test
         "tokens": single_test_usage.total_tokens,
         "temperature": config.scripts.temperature
     });
-    
+
     crate::stages::overview::save_reasoning(
         config,
         &problem,
@@ -506,7 +525,8 @@ Create a script called 'single-test-script.sh' that runs just one specified test
         "",
         &single_test_response.content,
         Some(metadata),
-    ).context("Failed to save single test script reasoning to structured storage")?;
+    )
+    .context("Failed to save single test script reasoning to structured storage")?;
 
     // Extract single test script content
     let single_test_script_content = extract_script(&single_test_response.content)
@@ -534,9 +554,18 @@ Create a script called 'single-test-script.sh' that runs just one specified test
 
     // Calculate total usage and cost
     let total_usage = crate::llm::client::TokenUsage {
-        prompt_tokens: setup_usage.prompt_tokens + lint_usage.prompt_tokens + test_usage.prompt_tokens + single_test_usage.prompt_tokens,
-        completion_tokens: setup_usage.completion_tokens + lint_usage.completion_tokens + test_usage.completion_tokens + single_test_usage.completion_tokens,
-        total_tokens: setup_usage.total_tokens + lint_usage.total_tokens + test_usage.total_tokens + single_test_usage.total_tokens,
+        prompt_tokens: setup_usage.prompt_tokens
+            + lint_usage.prompt_tokens
+            + test_usage.prompt_tokens
+            + single_test_usage.prompt_tokens,
+        completion_tokens: setup_usage.completion_tokens
+            + lint_usage.completion_tokens
+            + test_usage.completion_tokens
+            + single_test_usage.completion_tokens,
+        total_tokens: setup_usage.total_tokens
+            + lint_usage.total_tokens
+            + test_usage.total_tokens
+            + single_test_usage.total_tokens,
     };
     let total_cost = setup_cost + lint_cost + test_cost + single_test_cost;
     info!("Total script generation LLM usage: {}", total_usage);
