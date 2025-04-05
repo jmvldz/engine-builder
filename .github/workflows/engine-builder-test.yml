@@ -14,21 +14,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Build Rust project
+        run: cargo build
 
       - name: Install dependencies
         run: |
@@ -46,13 +38,13 @@ jobs:
 
           # Install Docker packages
           sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-          cargo build --release
 
-      - name: Clone FlexPrice repository
+      - name: Clone FlexPrice repository at specific commit
         run: |
           git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
           cd /tmp/flexprice
-          echo "FlexPrice repo cloned to /tmp/flexprice"
+          git checkout f43d535deb5379c7ee1a4ddb113f421071e36c31
+          echo "FlexPrice repo cloned to /tmp/flexprice at commit f43d535deb5379c7ee1a4ddb113f421071e36c31"
 
       - name: Create config file
         env:
@@ -89,7 +81,7 @@ jobs:
 
       - name: Run engine-builder pipeline
         run: |
-          RUST_LOG=info cargo run --release -- -c config.json pipeline
+          RUST_LOG=info cargo run -- -c config.json pipeline
 
       - name: Build Docker image and run tests
         run: |
@@ -98,15 +90,15 @@ jobs:
 
           # Build the Docker image
           echo "Building Docker image..."
-          RUST_LOG=info cargo run --release -- -c config.json build-image --tag flexprice-test
+          RUST_LOG=info cargo run -- -c config.json build-image --tag flexprice-test
 
           # Run lint script
           # echo "Running lint script..."
-          # RUST_LOG=info cargo run --release -- -c config.json run-lint --tag flexprice-test
+          # RUST_LOG=info cargo run -- -c config.json run-lint --tag flexprice-test
 
           # Run test script
           echo "Running test script..."
-          RUST_LOG=info cargo run --release -- -c config.json run-test --tag flexprice-test
+          RUST_LOG=info cargo run -- -c config.json run-test --tag flexprice-test
 
       - name: Check output files
         run: |
