@@ -36,6 +36,9 @@ pub struct OverviewData {
 
     /// Reasoning for any Dockerfile error fixes
     pub dockerfile_error_reasoning: HashMap<String, String>,
+    
+    /// Reasoning for any test script error fixes
+    pub test_script_error_reasoning: HashMap<String, String>,
 
     /// Metadata about the generation process
     pub metadata: HashMap<String, String>,
@@ -59,6 +62,7 @@ impl OverviewData {
             single_test_script_reasoning: None,
             dockerfile_reasoning: None,
             dockerfile_error_reasoning: HashMap::new(),
+            test_script_error_reasoning: HashMap::new(),
             metadata,
         }
     }
@@ -128,6 +132,25 @@ impl OverviewData {
             // Create a sorted vector of attempts to ensure they are in order
             let mut attempts: Vec<(&String, &String)> =
                 self.dockerfile_error_reasoning.iter().collect();
+            attempts.sort_by(|a, b| {
+                a.0.parse::<usize>()
+                    .unwrap_or(0)
+                    .cmp(&b.0.parse::<usize>().unwrap_or(0))
+            });
+
+            for (attempt, reasoning) in attempts {
+                md.push_str(&format!("### Attempt {}\n\n", attempt));
+                md.push_str(&format!("{}\n\n", reasoning));
+            }
+        }
+        
+        // Add Test Script error reasoning if available
+        if !self.test_script_error_reasoning.is_empty() {
+            md.push_str("## Test Script Error Fixes\n\n");
+
+            // Create a sorted vector of attempts to ensure they are in order
+            let mut attempts: Vec<(&String, &String)> =
+                self.test_script_error_reasoning.iter().collect();
             attempts.sort_by(|a, b| {
                 a.0.parse::<usize>()
                     .unwrap_or(0)

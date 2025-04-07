@@ -7,8 +7,9 @@ use std::path::Path;
 use crate::config::Config;
 use crate::llm::client::{create_client, TokenCost};
 use crate::llm::prompts::{
-    get_lint_script_user_prompt, get_setup_script_user_prompt, get_test_script_user_prompt,
-    LINT_SCRIPT_SYSTEM_PROMPT, SETUP_SCRIPT_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
+    get_lint_script_user_prompt, get_setup_script_user_prompt, get_test_script_error_user_prompt,
+    get_test_script_user_prompt, LINT_SCRIPT_SYSTEM_PROMPT, SETUP_SCRIPT_SYSTEM_PROMPT, 
+    TEST_SCRIPT_ERROR_SYSTEM_PROMPT, TEST_SCRIPT_SYSTEM_PROMPT,
 };
 use crate::models::problem::SWEBenchProblem;
 use crate::models::ranking::RankedCodebaseFile;
@@ -573,4 +574,103 @@ Create a script called 'single-test-script.sh' that runs just one specified test
 
     info!("Script generation completed");
     Ok(())
+}
+
+/// Update a test script based on error output from a failed test run
+pub async fn update_test_script_from_error(
+    config: &Config,
+    problem: &SWEBenchProblem,
+    test_script_path: &Path,
+    error_output: &[String],
+    attempt: usize,
+) -> Result<String> {
+    // Read the current test script
+    let test_script_content = fs::read_to_string(test_script_path)
+        .context(format!("Failed to read test script at {:?}", test_script_path))?;
+
+    // Format error output as a single string
+    let error_output_str = error_output.join("\n");
+
+    // Create LLM config
+    let llm_config = crate::config::LLMConfig {
+        model_type: "anthropic".to_string(),
+        model: config.scripts.model.clone().unwrap_or_else(|| config.model.clone()),
+        api_key: config.anthropic_api_key.clone(),
+        base_url: None,
+        timeout: 60,
+        max_retries: 3,
+    };
+
+    // Create LLM client
+    let client = create_client(&llm_config)
+        .await
+        .context("Failed to create LLM client")?;
+
+    // Generate the user prompt for the LLM
+    let user_prompt = get_test_script_error_user_prompt(
+        &problem.problem_statement,
+        &test_script_content,
+        &error_output_str,
+    );
+
+    // Combine with system prompt
+    let combined_error_prompt = format!(
+        "System instructions:\n{}\n\nUser request:\n{}",
+        TEST_SCRIPT_ERROR_SYSTEM_PROMPT, user_prompt
+    );
+
+    // Send the request to the LLM
+    let llm_response = client
+        .completion_with_tracing(
+            &combined_error_prompt,
+            config.scripts.max_tokens,
+            config.scripts.temperature,
+            None,
+            Some(&format!("test_script_error_{}", problem.id)),
+            None,
+        )
+        .await
+        .context("Failed to get test script fix from LLM")?;
+
+    // Extract the full LLM response
+    let full_llm_response = llm_response.content.clone();
+
+    // Save the reasoning to a file
+    let reasoning_path = test_script_path
+        .with_file_name(format!("test_script_error_reasoning_{}.md", problem.id));
+
+    fs::write(&reasoning_path, &full_llm_response).context(format!(
+        "Failed to write test script error reasoning to {:?}",
+        reasoning_path
+    ))?;
+
+    // Save structured reasoning
+    let metadata = serde_json::json!({
+        "model": config.scripts.model,
+        "tokens": llm_response.usage.total_tokens,
+        "temperature": config.scripts.temperature,
+        "attempt": attempt
+    });
+
+    crate::stages::overview::save_reasoning(
+        config,
+        problem,
+        "test_script_error",
+        &format!("_{}", attempt),
+        &full_llm_response,
+        Some(metadata),
+    )
+    .context("Failed to save test script error reasoning to structured storage")?;
+
+    info!("Saved test script error reasoning to {:?}", reasoning_path);
+
+    // Try to extract the test script content
+    match extract_script(&full_llm_response) {
+        Ok(content) => Ok(content),
+        Err(_) => {
+            // If we can't extract a code block, return the original script
+            warn!("Could not extract updated test script from LLM response, using original");
+            Ok(test_script_content)
+        }
+    }
 }

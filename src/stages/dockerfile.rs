@@ -490,7 +490,7 @@ pub fn extract_dockerfile_from_response(response: &str) -> Option<String> {
 }
 
 /// Update a Dockerfile based on error output from a failed build
-async fn update_dockerfile_from_error(
+pub async fn update_dockerfile_from_error(
     config: &DockerfileConfig,
     problem: &SWEBenchProblem,
     dockerfile_path: &Path,
