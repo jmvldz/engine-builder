@@ -1,5 +1,5 @@
 use anyhow::Result;
-use engine_builder::stages::container::analyze_test_failure;
+use engine_builder::stages::container::analyze_test_failure_fallback;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -61,7 +61,7 @@ fn test_analyze_test_failure_integration() {
         "Error: no such file or directory: /usr/bin/gcc".to_string(),
         "Error: missing dependency libssl".to_string(),
     ];
-    let (fix_dockerfile, fix_test_script) = analyze_test_failure(&dockerfile_logs);
+    let (fix_dockerfile, fix_test_script) = analyze_test_failure_fallback(&dockerfile_logs);
     assert!(fix_dockerfile, "Should fix Dockerfile when Dockerfile errors are detected");
     assert!(!fix_test_script, "Should not fix test script when only Dockerfile errors are detected");
 
@@ -72,7 +72,7 @@ fn test_analyze_test_failure_integration() {
         "Error: test.sh: line 10: unexpected end of file".to_string(),
         "Error: unbound variable: TEST_DIR".to_string(),
     ];
-    let (fix_dockerfile, fix_test_script) = analyze_test_failure(&test_script_logs);
+    let (fix_dockerfile, fix_test_script) = analyze_test_failure_fallback(&test_script_logs);
     assert!(!fix_dockerfile, "Should not fix Dockerfile when only test script errors are detected");
     assert!(fix_test_script, "Should fix test script when test script errors are detected");
 }
