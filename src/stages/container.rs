@@ -371,6 +371,23 @@ Respond in the exact JSON format specified in the system instructions.
         "tokens": llm_response.usage.total_tokens
     });
     
+    // Try to extract the reasoning for display
+    let reasoning = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_content) {
+        json["reasoning"].as_str().unwrap_or("").to_string()
+    } else {
+        // Try regex to extract reasoning if JSON parsing fails
+        let re = regex::Regex::new(r#""reasoning":\s*"([^"]*)"#).unwrap();
+        re.captures(&response_content)
+            .and_then(|caps| caps.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "No reasoning available".to_string())
+    };
+    
+    // Display reasoning to the user
+    if !reasoning.is_empty() {
+        println!("\nLLM Analysis: {}", reasoning);
+    }
+    
     crate::stages::overview::save_reasoning(
         config,
         problem,
@@ -397,6 +414,16 @@ Respond in the exact JSON format specified in the system instructions.
         Ok(json) => {
             let fix_dockerfile = json["fix_dockerfile"].as_bool().unwrap_or(true);
             let fix_test_script = json["fix_test_script"].as_bool().unwrap_or(true);
+            
+            // Log the decision to console
+            let decision_str = match (fix_dockerfile, fix_test_script) {
+                (true, true) => "Will update both Dockerfile and test script",
+                (true, false) => "Will update Dockerfile only",
+                (false, true) => "Will update test script only",
+                (false, false) => "No updates needed (unusual state, will still proceed)"
+            };
+            
+            println!("\nLLM Decision: {}", decision_str);
             
             info!(
                 "LLM analysis result: fix_dockerfile={}, fix_test_script={}",
@@ -483,21 +510,25 @@ pub fn analyze_test_failure_fallback(logs: &[String]) -> (bool, bool) {
         (0, 0) => {
             // No clear indicators, try fixing both
             info!("No clear indicators in error logs, will try to fix both Dockerfile and test script");
+            println!("\nFallback Analysis: No clear indicators in error logs, will try to fix both Dockerfile and test script");
             (true, true)
         }
         (d, t) if d > t => {
             // More Dockerfile issues, focus on that
             info!("Detected primarily Dockerfile issues ({} indicators vs {} for test script)", d, t);
+            println!("\nFallback Analysis: Detected primarily Dockerfile issues ({} indicators vs {} for test script)", d, t);
             (true, false)
         }
         (d, t) if t > d => {
             // More test script issues, focus on that
-            info!("Detected primarily test script issues ({} indicators vs {} for test script)", t, d);
+            info!("Detected primarily test script issues ({} indicators vs {} for Dockerfile)", t, d);
+            println!("\nFallback Analysis: Detected primarily test script issues ({} indicators vs {} for Dockerfile)", t, d);
             (false, true)
         }
         (d, _) => {
             // Equal number of issues, prioritize test script as it's easier to fix
             info!("Equal indicators for Dockerfile and test script issues ({} each), prioritizing test script", d);
+            println!("\nFallback Analysis: Equal indicators for Dockerfile and test script issues ({} each), prioritizing test script", d);
             (false, true)
         }
     }
