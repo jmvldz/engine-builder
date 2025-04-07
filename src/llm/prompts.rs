@@ -786,6 +786,63 @@ Format your shell script between ```sh and ``` tags."#,
     )
 }
 
+/// System prompt for test script error correction
+pub const TEST_SCRIPT_ERROR_SYSTEM_PROMPT: &str = r#"You are an expert at fixing test script issues. When a test script fails to execute correctly in a container, you will analyze the error messages and update the test script to fix the issues.
+
+Follow these steps:
+
+1. Analyze the error messages to identify the root cause of the test failure
+2. Determine what changes are needed to fix the test script
+3. Create an updated version of the test script that addresses the issues
+4. Provide a brief explanation of what you changed and why
+
+Keep these guidelines in mind:
+- Only make necessary changes to fix the specific errors
+- Preserve the original structure and purpose of the test script
+- Follow shell scripting best practices
+- Your response should include BOTH a reasoning section AND the complete updated test script
+
+Format your response like this:
+
+## Analysis and Reasoning
+[Your detailed analysis of the error and explanation of your changes]
+
+## Updated Test Script
+```sh
+[The complete updated test script goes here]
+```
+"#;
+
+/// Generate a test script user prompt for error fixing
+pub fn get_test_script_error_user_prompt(
+    problem_statement: &str,
+    test_script_content: &str,
+    error_message: &str,
+) -> String {
+    format!(
+        r#"Please analyze the following test script error and suggest fixes to the test script.
+
+Problem Description:
+<problem>
+{}
+</problem>
+
+Current Test Script:
+<test_script>
+{}
+</test_script>
+
+Test Execution Error:
+<e>
+{}
+</e>
+
+Based on this error, please suggest specific changes to fix the test script.
+Format your updated test script between ```sh and ``` tags."#,
+        problem_statement, test_script_content, error_message
+    )
+}
+
 /// Generate a test script generation prompt
 pub fn get_test_script_user_prompt(
     problem_statement: &str,

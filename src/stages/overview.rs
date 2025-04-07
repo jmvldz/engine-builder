@@ -39,6 +39,7 @@ pub async fn generate_overview(config: &Config, problem: &SWEBenchProblem) -> Re
     let single_test_script_re = Regex::new(r"single_test_script_.*\.json$").unwrap();
     let dockerfile_re = Regex::new(r"dockerfile_.*\.json$").unwrap();
     let dockerfile_error_re = Regex::new(r"dockerfile_error_(\d+)\.json$").unwrap();
+    let test_script_error_re = Regex::new(r"test_script_error_(\d+)\.json$").unwrap();
 
     for file_path in reasoning_files {
         if let Some(file_name) = file_path.file_name().and_then(|n| n.to_str()) {
@@ -77,6 +78,7 @@ pub async fn generate_overview(config: &Config, problem: &SWEBenchProblem) -> Re
                 }
             } else if test_script_re.is_match(file_name)
                 && !file_name.contains("single_test_script")
+                && !file_name.contains("test_script_error")
             {
                 if let Ok((reasoning, _)) = trajectory_store.load_stage_reasoning("test_script", "")
                 {
@@ -101,6 +103,17 @@ pub async fn generate_overview(config: &Config, problem: &SWEBenchProblem) -> Re
                     {
                         overview
                             .dockerfile_error_reasoning
+                            .insert(attempt.to_string(), reasoning);
+                    }
+                }
+            } else if let Some(captures) = test_script_error_re.captures(file_name) {
+                if let Some(attempt_match) = captures.get(1) {
+                    let attempt = attempt_match.as_str();
+                    if let Ok((reasoning, _)) = trajectory_store
+                        .load_stage_reasoning("test_script_error", &format!("_{}", attempt))
+                    {
+                        overview
+                            .test_script_error_reasoning
                             .insert(attempt.to_string(), reasoning);
                     }
                 }

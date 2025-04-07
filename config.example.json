@@ -12,6 +12,13 @@
   "ranking": {
     "model": "claude-3-5-haiku-20241022"
   },
+  "container": {
+    "timeout": 300,
+    "parallel": false,
+    "remove": true,
+    "retry_tests": true,
+    "max_retries": 3
+  },
   "observability": {
     "langfuse": {
       "enabled": true,

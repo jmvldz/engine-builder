@@ -223,6 +223,14 @@ pub struct ContainerConfig {
     pub timeout: u64,   // Timeout for container execution in seconds
     pub parallel: bool, // Whether to run lint and test containers in parallel
     pub remove: bool,   // Whether to remove containers after execution
+    #[serde(default = "default_max_retries")]
+    pub max_retries: usize, // Maximum number of test retry attempts
+    #[serde(default = "default_retry_tests")]
+    pub retry_tests: bool,  // Whether to retry failed tests with regenerated scripts/dockerfile
+}
+
+fn default_retry_tests() -> bool {
+    true
 }
 
 impl Default for ContainerConfig {
@@ -231,6 +239,8 @@ impl Default for ContainerConfig {
             timeout: 300,    // 5 minutes default timeout
             parallel: false, // Serial execution by default
             remove: true,    // Remove containers by default
+            max_retries: default_max_retries(),
+            retry_tests: default_retry_tests(),
         }
     }
 }
