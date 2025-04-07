@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use indicatif::{ProgressBar, ProgressStyle};
+use log::{debug, warn};
 use regex::Regex;
 use serde_json;
 use std::fs;
@@ -94,7 +95,7 @@ pub async fn run_file_selection(
     problem: &SWEBenchProblem,
     trajectory_dir: &str,
 ) -> Result<(FilePatternSelection, crate::llm::client::TokenUsage)> {
-    info!("Starting file selection process");
+    debug!("Starting file selection process");
 
     // Get the LLM config which uses the top-level model as fallback
     let llm_config = config.to_llm_config(&relevance_config.model);
@@ -253,13 +254,23 @@ pub async fn process_file_selection(
     problem: SWEBenchProblem,
     trajectory_dir: &str,
 ) -> Result<()> {
-    debug!("Starting file selection process");
+    // Set up progress bar for file selection process
+    let progress_bar = ProgressBar::new(4); // 4 steps: init, LLM call, save patterns, finalize
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+            .unwrap(),
+    );
+    progress_bar.set_message("Initializing file selection");
 
     // Create a trajectory store for this problem (for future use)
     let _trajectory_store = TrajectoryStore::new(trajectory_dir, &problem).context(format!(
         "Failed to create trajectory store for problem: {}",
         problem.id
     ))?;
+
+    progress_bar.inc(1);
+    progress_bar.set_message("Requesting file pattern selection from LLM");
 
     // Run file selection and get token usage
     let (file_patterns, token_usage) = run_file_selection(
@@ -271,6 +282,9 @@ pub async fn process_file_selection(
     )
     .await?;
 
+    progress_bar.inc(1);
+    progress_bar.set_message("Saving file patterns");
+
     // Create the LLM client to access pricing information
     let client = create_client(&config.to_llm_config(&config.relevance.model))
         .await
@@ -278,13 +292,16 @@ pub async fn process_file_selection(
 
     let cost = client.calculate_cost(&token_usage);
 
-    // Output cost information
+    // Output cost information through logs (not stdout)
     debug!("File selection LLM usage: {}", token_usage);
     debug!("File selection LLM cost: {}", cost);
 
     // Save the results
     save_file_patterns(trajectory_dir, &problem, &file_patterns)?;
 
+    progress_bar.inc(1);
+    progress_bar.finish_with_message(format!("File selection completed for problem: {}", problem.id));
+    
     debug!("File selection process completed");
     Ok(())
 }

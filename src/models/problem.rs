@@ -158,24 +158,20 @@ impl SWEBenchProblem {
         let mut builder = GitignoreBuilder::new(codebase_path);
 
         info!("Loading gitignore from path: {:?}", gitignore_path);
-        println!("Loading gitignore from path: {:?}", gitignore_path);
 
         // Read the gitignore file content for debugging
         if let Ok(content) = std::fs::read_to_string(gitignore_path) {
             info!("Gitignore content:\n{}", content);
-            println!("Gitignore content:\n{}", content);
         }
 
         // GitignoreBuilder.add returns Option<()>, where None means success
         match builder.add(gitignore_path) {
             Some(err) => {
                 info!("Failed to add gitignore file: {}", err);
-                println!("Failed to add gitignore file: {}", err);
                 return Err(anyhow::anyhow!("Failed to add gitignore file: {}", err));
             }
             None => {
                 info!("Successfully added gitignore file");
-                println!("Successfully added gitignore file");
             }
         }
 
@@ -183,12 +179,10 @@ impl SWEBenchProblem {
         let gitignore = match builder.build() {
             Ok(gitignore) => {
                 info!("Successfully built gitignore");
-                println!("Successfully built gitignore");
                 gitignore
             }
             Err(e) => {
                 info!("Failed to build gitignore: {}", e);
-                println!("Failed to build gitignore: {}", e);
                 return Err(anyhow::anyhow!("Failed to build gitignore: {}", e));
             }
         };
@@ -206,10 +200,6 @@ impl SWEBenchProblem {
             let is_dir = path.ends_with("node_modules");
             let match_result = gitignore.matched(&path, is_dir);
             info!(
-                "Testing gitignore match for {}: {:?}",
-                test_path, match_result
-            );
-            println!(
                 "Testing gitignore match for {}: {:?}",
                 test_path, match_result
             );
