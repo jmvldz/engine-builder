@@ -147,17 +147,12 @@ pub async fn check_and_regenerate_on_test_failure(
             let dockerfile_path = codebase_path.join("Dockerfile");
             let error_output = result.logs.join("\n");
 
-            // Create a config for the update_dockerfile_from_error function
-            let dockerfile_config = crate::config::DockerfileConfig {
-                model: None,
-                max_tokens: 4096,
-                temperature: 0.0,
-                max_retries: 3,
-            };
+            // For tests we'll use the default config, in production this would be from the problem
+            let config = crate::config::Config::default();
 
             // Update the Dockerfile
             let _updated_dockerfile = crate::stages::dockerfile::update_dockerfile_from_error(
-                &dockerfile_config,
+                &config,
                 problem,
                 &dockerfile_path,
                 &error_output,

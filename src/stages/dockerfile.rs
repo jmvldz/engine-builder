@@ -2,10 +2,10 @@ use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use regex::Regex;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::config::{Config, DockerfileConfig};
+use crate::config::Config;
 use crate::llm::client::create_client;
 use crate::llm::prompts::{
     get_dockerfile_error_user_prompt, get_test_dockerfile_user_prompt,
@@ -424,16 +424,8 @@ pub async fn build_docker_image(
         println!("\nAnalyzing build error and updating Dockerfile...");
         info!("Attempting to fix Dockerfile using LLM...");
 
-        // Create a config for the update_dockerfile_from_error function
-        let dockerfile_config = DockerfileConfig {
-            model: Some("claude-3-opus-20240229".to_string()),
-            max_tokens: 4096,
-            temperature: 0.0,
-            max_retries: 3,
-        };
-
         let updated_dockerfile = update_dockerfile_from_error(
-            &dockerfile_config,
+            config,
             problem,
             &dockerfile_path,
             &error_output,
@@ -491,7 +483,7 @@ pub fn extract_dockerfile_from_response(response: &str) -> Option<String> {
 
 /// Update a Dockerfile based on error output from a failed build
 pub async fn update_dockerfile_from_error(
-    config: &DockerfileConfig,
+    config: &Config,
     problem: &SWEBenchProblem,
     dockerfile_path: &Path,
     error_output: &str,
@@ -503,26 +495,8 @@ pub async fn update_dockerfile_from_error(
         dockerfile_path
     ))?;
 
-    // Get API key from environment
-    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-
-    // Get the parent config to access additional settings
-    let parent_config = std::env::var("ENGINE_BUILDER_CONFIG")
-        .map(|path| crate::config::Config::from_file(Some(&path)))
-        .unwrap_or_else(|_| crate::config::Config::from_file(None));
-
-    // Create LLM config with the API key
-    let llm_config = crate::config::LLMConfig {
-        model_type: "anthropic".to_string(),
-        model: config
-            .model
-            .clone()
-            .unwrap_or_else(|| "claude-3-opus-20240229".to_string()),
-        api_key,
-        base_url: None,
-        timeout: 60,
-        max_retries: 3,
-    };
+    // Create LLM config using the config's to_llm_config method
+    let llm_config = config.to_llm_config(&config.dockerfile.model);
 
     // Create LLM client
     let client = create_client(&llm_config)
@@ -546,8 +520,8 @@ pub async fn update_dockerfile_from_error(
     let llm_response = client
         .completion_with_tracing(
             &combined_error_prompt,
-            config.max_tokens,
-            config.temperature,
+            config.dockerfile.max_tokens,
+            config.dockerfile.temperature,
             None,
             Some(&format!("dockerfile_error_{}", problem.id)),
             None,
@@ -567,51 +541,16 @@ pub async fn update_dockerfile_from_error(
         reasoning_path
     ))?;
 
-    // Use parent_config if available, or create a minimal one
-    let parent_config_val = match parent_config {
-        Ok(ref conf) => conf.clone(),
-        Err(_) => {
-            // Just use environment variables for API keys and minimal default settings
-            let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-
-            // Load the existing CodebaseConfig since it doesn't have a Default impl
-            let codebase = crate::config::CodebaseConfig {
-                path: if let Some(path) = problem.get_codebase_path() {
-                    path.clone()
-                } else {
-                    PathBuf::from(".")
-                },
-                problem_id: problem.id.clone(),
-                problem_statement: problem.problem_statement.clone(),
-                exclusions_path: "exclusions.json".to_string(),
-            };
-
-            crate::config::Config {
-                anthropic_api_key: api_key,
-                model: "claude-3-opus-20240229".to_string(),
-                relevance: crate::config::RelevanceConfig::default(),
-                ranking: crate::config::RankingConfig::default(),
-                codebase,
-                dockerfile: crate::config::DockerfileConfig::default(),
-                scripts: crate::config::ScriptConfig::default(),
-                chat: crate::config::ChatConfig::default(),
-                container: crate::config::ContainerConfig::default(),
-                observability: crate::config::ObservabilityConfig::default(),
-                output_path: None,
-            }
-        }
-    };
-
     // Add attempt number as identifier
     let metadata = serde_json::json!({
-        "model": config.model,
+        "model": config.dockerfile.model,
         "tokens": llm_response.usage.total_tokens,
-        "temperature": config.temperature,
+        "temperature": config.dockerfile.temperature,
         "attempt": attempt
     });
 
     crate::stages::overview::save_reasoning(
-        &parent_config_val,
+        config,
         problem,
         "dockerfile_error",
         &format!("_{}", attempt),
