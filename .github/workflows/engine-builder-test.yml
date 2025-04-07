@@ -43,8 +43,8 @@ jobs:
         run: |
           git clone https://github.com/flexprice/flexprice.git /tmp/flexprice
           cd /tmp/flexprice
-          git checkout f43d535deb5379c7ee1a4ddb113f421071e36c31
-          echo "FlexPrice repo cloned to /tmp/flexprice at commit f43d535deb5379c7ee1a4ddb113f421071e36c31"
+          git checkout a3959109bb9a587b79e9377bc38b783531180432
+          echo "FlexPrice repo cloned to /tmp/flexprice at commit a3959109bb9a587b79e9377bc38b783531180432"
 
       - name: Create config file
         env:
