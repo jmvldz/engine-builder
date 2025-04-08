@@ -55,15 +55,12 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
     let (ui_tx, ui_rx) = mpsc::channel::<ChatMessage>(100);
     let (input_tx, mut input_rx) = mpsc::channel::<String>(10);
 
-    // Load the application config for tool execution
-    let app_config = Config::from_file(None).unwrap_or_else(|_| Config::default());
-
     // Create a default problem for tool execution
     let problem = SWEBenchProblem::new(
-        app_config.codebase.problem_id.clone(),
-        app_config.codebase.problem_statement.clone(),
+        "custom_problem".to_string(),
+        "Please analyze this codebase".to_string(),
     )
-    .with_codebase_path(&app_config.codebase.path);
+    .with_codebase_path(&std::path::PathBuf::from("."));
 
     // Keep track of the conversation history
     let mut history = Vec::new();
@@ -84,6 +81,8 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
             &config.llm_config.model
         ),
     };
+
+    history.push(welcome_message);
 
     // Spawn UI task properly with correct awaiting structure
     let ui_handle = tokio::task::spawn(async move {

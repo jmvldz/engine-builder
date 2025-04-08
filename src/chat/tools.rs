@@ -200,13 +200,13 @@ pub fn parse_tool_call(response: &str) -> Option<(String, HashMap<String, String
 pub async fn execute_tool(
     tool_name: &str,
     params: &HashMap<String, String>,
-    config: &Config,
+    app_config: &Config,
     problem: &SWEBenchProblem,
 ) -> Result<ToolResult> {
     match tool_name {
         "relevance" => {
             let result =
-                stages::relevance::process_codebase(config, &config.codebase, problem.clone())
+                stages::relevance::process_codebase(app_config, &app_config.codebase, problem.clone())
                     .await;
 
             match result {
@@ -221,7 +221,7 @@ pub async fn execute_tool(
             }
         }
         "ranking" => {
-            let result = stages::ranking::process_rankings(config, problem.clone()).await;
+            let result = stages::ranking::process_rankings(app_config, problem.clone()).await;
 
             match result {
                 Ok(_) => Ok(ToolResult {
@@ -237,10 +237,10 @@ pub async fn execute_tool(
         "pipeline" => {
             // Run file selection
             let result1 = stages::file_selection::process_file_selection(
-                config,
-                &config.codebase,
+                app_config,
+                &app_config.codebase,
                 problem.clone(),
-                &config.get_trajectory_dir(&problem.id),
+                &app_config.get_trajectory_dir(&problem.id),
             )
             .await;
 
@@ -253,7 +253,7 @@ pub async fn execute_tool(
 
             // Process relevance
             let result2 =
-                stages::relevance::process_codebase(config, &config.codebase, problem.clone())
+                stages::relevance::process_codebase(app_config, &app_config.codebase, problem.clone())
                     .await;
 
             if let Err(e) = result2 {
@@ -264,7 +264,7 @@ pub async fn execute_tool(
             }
 
             // Run ranking
-            let result3 = stages::ranking::process_rankings(config, problem.clone()).await;
+            let result3 = stages::ranking::process_rankings(app_config, problem.clone()).await;
 
             if let Err(e) = result3 {
                 return Ok(ToolResult {
@@ -275,7 +275,7 @@ pub async fn execute_tool(
 
             // Generate scripts
             let result4 =
-                stages::scripts::generate_scripts_from_ranking(config, problem.clone()).await;
+                stages::scripts::generate_scripts_from_ranking(app_config, problem.clone()).await;
 
             if let Err(e) = result4 {
                 return Ok(ToolResult {
@@ -285,7 +285,7 @@ pub async fn execute_tool(
             }
 
             // Generate Dockerfile
-            let result5 = stages::dockerfile::generate_dockerfile(config, problem.clone()).await;
+            let result5 = stages::dockerfile::generate_dockerfile(app_config, problem.clone()).await;
 
             match result5 {
                 Ok(_) => Ok(ToolResult {
@@ -300,10 +300,10 @@ pub async fn execute_tool(
         }
         "file_selection" => {
             let result = stages::file_selection::process_file_selection(
-                &config,
-                &config.codebase,
+                app_config,
+                &app_config.codebase,
                 problem.clone(),
-                &config.get_trajectory_dir(&problem.id),
+                &app_config.get_trajectory_dir(&problem.id),
             )
             .await;
 
@@ -319,7 +319,7 @@ pub async fn execute_tool(
             }
         }
         "dockerfile" => {
-            let result = stages::dockerfile::generate_dockerfile(&config, problem.clone()).await;
+            let result = stages::dockerfile::generate_dockerfile(app_config, problem.clone()).await;
 
             match result {
                 Ok(_) => Ok(ToolResult {
@@ -338,7 +338,7 @@ pub async fn execute_tool(
                 .map(|s| s.as_str())
                 .unwrap_or("engine-builder-test");
 
-            let result = stages::dockerfile::build_docker_image(config, problem, tag).await;
+            let result = stages::dockerfile::build_docker_image(app_config, problem, tag).await;
 
             match result {
                 Ok(_) => Ok(ToolResult {
@@ -353,7 +353,7 @@ pub async fn execute_tool(
         }
         "generate_scripts" => {
             let result =
-                stages::scripts::generate_scripts_from_ranking(config, problem.clone()).await;
+                stages::scripts::generate_scripts_from_ranking(app_config, problem.clone()).await;
 
             match result {
                 Ok(_) => Ok(ToolResult {
@@ -373,7 +373,7 @@ pub async fn execute_tool(
                 .unwrap_or("engine-builder-test");
 
             let result =
-                stages::container::run_lint_container(problem, tag, &config.container).await;
+                stages::container::run_lint_container(problem, tag, &app_config.container).await;
 
             match result {
                 Ok(container_result) => {
@@ -404,7 +404,7 @@ pub async fn execute_tool(
                 .unwrap_or("engine-builder-test");
 
             let result =
-                stages::container::run_test_container(problem, tag, &config.container).await;
+                stages::container::run_test_container(problem, tag, &app_config.container).await;
 
             match result {
                 Ok(container_result) => {
@@ -440,7 +440,7 @@ pub async fn execute_tool(
                 .unwrap_or(false);
 
             // Clone container config and override parallel flag if specified
-            let mut container_config = config.container.clone();
+            let mut container_config = app_config.container.clone();
             if parallel {
                 container_config.parallel = true;
             }

@@ -133,13 +133,9 @@ pub async fn check_and_regenerate_on_test_failure(
         println!("\nAnalyzing test failure...");
         info!("Analyzing test failure to determine fix approach");
 
-        // Load the full config from file
-        let loaded_config = crate::config::Config::from_file(None)
-            .context("Failed to load configuration for test failure analysis")?;
-
         // Use LLM to analyze the failure
         let (fix_dockerfile, fix_test_script) = match analyze_test_failure_with_llm(
-            &loaded_config,
+            config,
             problem,
             &result.logs,
         )
@@ -168,9 +164,9 @@ pub async fn check_and_regenerate_on_test_failure(
             };
             let error_output = result.logs.join("\n");
 
-            // Update the Dockerfile using the loaded config
+            // Update the Dockerfile using the passed config
             let updated_dockerfile = crate::stages::dockerfile::update_dockerfile_from_error(
-                &loaded_config,
+                config,
                 problem,
                 &dockerfile_path,
                 &error_output,
@@ -200,7 +196,7 @@ pub async fn check_and_regenerate_on_test_failure(
             info!("Rebuilding Docker image with updated Dockerfile");
 
             // Rebuild Docker image with the updated Dockerfile
-            crate::stages::dockerfile::build_docker_image(&loaded_config, problem, tag).await?;
+            crate::stages::dockerfile::build_docker_image(config, problem, tag).await?;
         }
 
         if fix_test_script {
@@ -220,9 +216,9 @@ pub async fn check_and_regenerate_on_test_failure(
                 scripts_dir.join("test-script.sh")
             };
 
-            // Update the test script using the loaded config
+            // Update the test script using the passed config
             let updated_test_script = crate::stages::scripts::update_test_script_from_error(
-                &loaded_config,
+                config,
                 problem,
                 &test_script_path,
                 &result.logs,
@@ -266,7 +262,7 @@ pub async fn check_and_regenerate_on_test_failure(
                 info!("Rebuilding Docker image with updated test script");
 
                 // Rebuild Docker image with the updated test script
-                crate::stages::dockerfile::build_docker_image(&loaded_config, problem, tag).await?;
+                crate::stages::dockerfile::build_docker_image(config, problem, tag).await?;
             }
         }
 
