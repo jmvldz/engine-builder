@@ -133,7 +133,8 @@ pub async fn check_and_regenerate_on_test_failure(
         println!("\nAnalyzing test failure...");
         info!("Analyzing test failure to determine fix approach");
 
-        let loaded_config = config;
+        let loaded_config = crate::config::Config::from_file(None)
+            .context("Failed to load configuration for test failure analysis")?;
 
         // Use LLM to analyze the failure
         let (fix_dockerfile, fix_test_script) = match analyze_test_failure_with_llm(
