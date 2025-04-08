@@ -430,7 +430,7 @@ async fn main() -> Result<()> {
             };
 
             // Start the chat session
-            engine_builder::chat::start_chat(chat_config).await?;
+            engine_builder::chat::start_chat(&config, chat_config).await?;
         }
     }
 

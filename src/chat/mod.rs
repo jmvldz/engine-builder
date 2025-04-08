@@ -40,7 +40,7 @@ impl Default for ChatConfig {
 }
 
 /// Starts a chat session with the configured LLM
-pub async fn start_chat(config: ChatConfig) -> Result<()> {
+pub async fn start_chat(app_config: &Config, config: ChatConfig) -> Result<()> {
     let llm_client = create_client(&config.llm_config)
         .await
         .context("Failed to create LLM client")?;
@@ -54,9 +54,6 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
     // Create channels for communication between UI and chat processing
     let (ui_tx, ui_rx) = mpsc::channel::<ChatMessage>(100);
     let (input_tx, mut input_rx) = mpsc::channel::<String>(10);
-
-    // Load the application config for tool execution
-    let app_config = Config::from_file(None).unwrap_or_else(|_| Config::default());
 
     // Create a default problem for tool execution
     let problem = SWEBenchProblem::new(
