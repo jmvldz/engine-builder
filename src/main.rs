@@ -336,6 +336,13 @@ async fn main() -> Result<()> {
         }
         Command::RunTest { tag } => {
             info!("Running test container with image tag: {}", tag);
+            
+            // Set the config path in an environment variable so container.rs can access it
+            if let Some(config_path) = &cli.config_path {
+                std::env::set_var("ENGINE_BUILDER_CONFIG", config_path);
+                info!("Set ENGINE_BUILDER_CONFIG environment variable to: {}", config_path);
+            }
+            
             let result = container::run_test_container(&problem, &tag, &config.container).await?;
 
             // Print summary
@@ -356,6 +363,12 @@ async fn main() -> Result<()> {
                 "Running both lint and test containers with image tag: {}",
                 tag
             );
+            
+            // Set the config path in an environment variable so container.rs can access it
+            if let Some(config_path) = &cli.config_path {
+                std::env::set_var("ENGINE_BUILDER_CONFIG", config_path);
+                info!("Set ENGINE_BUILDER_CONFIG environment variable to: {}", config_path);
+            }
 
             // Override parallel flag from CLI if provided
             let mut container_config = config.container.clone();
@@ -429,8 +442,14 @@ async fn main() -> Result<()> {
                 temperature: temp,
             };
 
-            // Start the chat session
-            engine_builder::chat::start_chat(chat_config).await?;
+            // Set the config path in an environment variable for chat module
+            if let Some(config_path) = &cli.config_path {
+                std::env::set_var("ENGINE_BUILDER_CONFIG", config_path);
+                info!("Set ENGINE_BUILDER_CONFIG environment variable to: {}", config_path);
+            }
+
+            // Start the chat session and pass the loaded config
+            engine_builder::chat::start_chat(chat_config, config.clone()).await?;
         }
     }
 

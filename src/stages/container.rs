@@ -133,13 +133,24 @@ pub async fn check_and_regenerate_on_test_failure(
         println!("\nAnalyzing test failure...");
         info!("Analyzing test failure to determine fix approach");
 
-        // Load the full config from file
-        let loaded_config = crate::config::Config::from_file(None)
-            .context("Failed to load configuration for test failure analysis")?;
+        // Get the full config from main
+        // Instead of reloading the config, use the one that was passed to RunTest command in main.rs
+        let full_config = match std::env::var("ENGINE_BUILDER_CONFIG") {
+            Ok(config_path) => {
+                info!("Loading config from ENGINE_BUILDER_CONFIG environment variable: {}", config_path);
+                crate::config::Config::from_file(Some(&config_path))
+                    .context("Failed to load configuration for test failure analysis")?
+            }
+            Err(_) => {
+                // Fallback if environment variable is not set
+                warn!("ENGINE_BUILDER_CONFIG environment variable not set, using default configuration values");
+                crate::config::Config::default()
+            }
+        };
 
         // Use LLM to analyze the failure
         let (fix_dockerfile, fix_test_script) = match analyze_test_failure_with_llm(
-            &loaded_config,
+            &full_config,
             problem,
             &result.logs,
         )
@@ -168,9 +179,9 @@ pub async fn check_and_regenerate_on_test_failure(
             };
             let error_output = result.logs.join("\n");
 
-            // Update the Dockerfile using the loaded config
+            // Update the Dockerfile using the full config
             let updated_dockerfile = crate::stages::dockerfile::update_dockerfile_from_error(
-                &loaded_config,
+                &full_config,
                 problem,
                 &dockerfile_path,
                 &error_output,
@@ -200,7 +211,7 @@ pub async fn check_and_regenerate_on_test_failure(
             info!("Rebuilding Docker image with updated Dockerfile");
 
             // Rebuild Docker image with the updated Dockerfile
-            crate::stages::dockerfile::build_docker_image(&loaded_config, problem, tag).await?;
+            crate::stages::dockerfile::build_docker_image(&full_config, problem, tag).await?;
         }
 
         if fix_test_script {
@@ -220,9 +231,9 @@ pub async fn check_and_regenerate_on_test_failure(
                 scripts_dir.join("test-script.sh")
             };
 
-            // Update the test script using the loaded config
+            // Update the test script using the full config
             let updated_test_script = crate::stages::scripts::update_test_script_from_error(
-                &loaded_config,
+                &full_config,
                 problem,
                 &test_script_path,
                 &result.logs,
@@ -266,7 +277,7 @@ pub async fn check_and_regenerate_on_test_failure(
                 info!("Rebuilding Docker image with updated test script");
 
                 // Rebuild Docker image with the updated test script
-                crate::stages::dockerfile::build_docker_image(&loaded_config, problem, tag).await?;
+                crate::stages::dockerfile::build_docker_image(&full_config, problem, tag).await?;
             }
         }
 
