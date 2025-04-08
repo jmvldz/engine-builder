@@ -40,30 +40,27 @@ impl Default for ChatConfig {
 }
 
 /// Starts a chat session with the configured LLM
-pub async fn start_chat(config: ChatConfig) -> Result<()> {
-    let llm_client = create_client(&config.llm_config)
+pub async fn start_chat(config: &Config, chat_config: ChatConfig) -> Result<()> {
+    let llm_client = create_client(&chat_config.llm_config)
         .await
         .context("Failed to create LLM client")?;
 
     log::info!(
         "Starting chat with {}/{}",
-        &config.llm_config.model_type,
-        &config.llm_config.model
+        &chat_config.llm_config.model_type,
+        &chat_config.llm_config.model
     );
 
     // Create channels for communication between UI and chat processing
     let (ui_tx, ui_rx) = mpsc::channel::<ChatMessage>(100);
     let (input_tx, mut input_rx) = mpsc::channel::<String>(10);
 
-    // Load the application config for tool execution
-    let app_config = Config::from_file(None).unwrap_or_else(|_| Config::default());
-
     // Create a default problem for tool execution
     let problem = SWEBenchProblem::new(
-        app_config.codebase.problem_id.clone(),
-        app_config.codebase.problem_statement.clone(),
+        config.codebase.problem_id.clone(),
+        config.codebase.problem_statement.clone(),
     )
-    .with_codebase_path(&app_config.codebase.path);
+    .with_codebase_path(&config.codebase.path);
 
     // Keep track of the conversation history
     let mut history = Vec::new();
@@ -81,7 +78,7 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
         role: "assistant".to_string(),
         content: format!(
             "Welcome to the Engine Builder Chat Interface!\n\nI'm using the {} model.\n\nHow can I help you today? Type 'help' for available commands.",
-            &config.llm_config.model
+            &chat_config.llm_config.model
         ),
     };
 
@@ -146,7 +143,7 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
 
         // Get response from LLM
         match llm_client
-            .completion(&prompt, config.max_tokens, config.temperature)
+            .completion(&prompt, chat_config.max_tokens, chat_config.temperature)
             .await
         {
             Ok(response) => {
@@ -176,7 +173,7 @@ pub async fn start_chat(config: ChatConfig) -> Result<()> {
 
                     // Execute the tool
                     let result =
-                        tools::execute_tool(&tool_name, &params, &app_config, &problem).await;
+                        tools::execute_tool(&tool_name, &params, &config, &problem).await;
 
                     // Stop redirecting stdout
                     drop(stdout_redirect);
